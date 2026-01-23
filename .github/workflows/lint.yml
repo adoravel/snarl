@@ -1,0 +1,24 @@
+name: Lint
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+          cache: true
+      - name: verify formatting
+        run: deno fmt --check
+      - name: run linter
+        run: deno lint
+      - name: run tests
+        run: deno test --allow-net
+      - name: type check
+        run: deno check

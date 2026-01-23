@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
-import { assertEquals } from "jsr:@std/assert";
+import { assertEquals } from "jsr:@std/assert@1.0.17";
 import { parseCookies, serializeCookie } from "./cookie.ts";
 import { createRouter } from "./router.ts";
 import { rateLimit } from "./middleware.ts";
