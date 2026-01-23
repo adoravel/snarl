@@ -1,0 +1,34 @@
+{
+	"name": "@july/snarl",
+	"version": "0.1.0",
+	"license": "LGPL-3.0-or-later",
+	"exports": {
+		".": "./mod.ts",
+		"./jsx-runtime": "./jsx.ts",
+		"./jsx-dev-runtime": "./jsx.ts"
+	},
+	"tasks": {
+		"dev": "deno run --allow-net --watch src/main.tsx"
+	},
+	"imports": {
+		"@std/encoding": "jsr:@std/encoding@^1.0.10",
+		"snarl/jsx-runtime": "./jsx.ts",
+		"@std/http": "jsr:@std/http@^1.0.23"
+	},
+	"fmt": {
+		"useTabs": true,
+		"semiColons": true,
+		"lineWidth": 120
+	},
+	"compilerOptions": {
+		"jsx": "precompile",
+		"jsxImportSource": "snarl",
+		"lib": ["deno.ns", "dom", "dom.iterable"]
+	},
+	"lint": {
+		"rules": {
+			"tags": ["recommended"],
+			"exclude": ["no-explicit-any"]
+		}
+	}
+}
