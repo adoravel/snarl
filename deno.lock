@@ -105,7 +105,8 @@
   "workspace": {
     "dependencies": [
       "jsr:@std/encoding@^1.0.10",
-      "jsr:@std/http@^1.0.23"
+      "jsr:@std/http@^1.0.23",
+      "jsr:@std/path@^1.1.4"
     ]
   }
 }

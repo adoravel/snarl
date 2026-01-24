@@ -18,7 +18,7 @@ Deno.test("serializeCookie - creates cookie string", () => {
 		httpOnly: true,
 		maxAge: 3600,
 	});
-	assertEquals(result, "session=abc123; Max-Age=3600; Secure; HttpOnly; SameSite=Strict");
+	assertEquals(result, "session=abc123; Max-Age=3600; Secure; HttpOnly; SameSite=Lax");
 });
 
 Deno.test("router - matches routes correctly", async () => {

@@ -65,7 +65,7 @@ export function serializeCookie(
 	if (options.sameSite != null) {
 		if (options.sameSite) cookie += `; SameSite=${options.sameSite}`;
 	} else {
-		cookie += `; SameSite=Strict`;
+		cookie += `; SameSite=Lax`;
 	}
 
 	return cookie;

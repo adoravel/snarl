@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
-/// <reference types="snarl/jsx-runtime" />
+/// <reference types="@july/snarl/jsx-runtime" />
 
-import type { Component } from "snarl/jsx-runtime";
+import type { Component } from "@july/snarl/jsx-runtime";
 
 type CSSProperties =
 	& {

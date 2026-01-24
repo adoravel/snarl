@@ -13,7 +13,8 @@
 	},
 	"imports": {
 		"@std/encoding": "jsr:@std/encoding@^1.0.10",
-		"snarl/jsx-runtime": "./jsx.ts",
+		"@std/path": "jsr:@std/path@^1.1.4",
+		"@july/snarl/jsx-runtime": "./jsx.ts",
 		"@std/http": "jsr:@std/http@^1.0.23"
 	},
 	"fmt": {
@@ -23,7 +24,7 @@
 	},
 	"compilerOptions": {
 		"jsx": "precompile",
-		"jsxImportSource": "snarl",
+		"jsxImportSource": "@july/snarl",
 		"lib": ["deno.ns", "dom", "dom.iterable"]
 	},
 	"lint": {

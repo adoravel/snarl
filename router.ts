@@ -4,7 +4,7 @@
  */
 
 import { compose, createContext, ErrorHandler, Handler, Middleware } from "./middleware.ts";
-import { httpMethods, Method, ParametersOf, PreciseURLPattern } from "./utils.ts";
+import { HttpError, httpMethods, Method, ParametersOf, PreciseURLPattern } from "./utils.ts";
 
 export interface Route<P extends string> {
 	readonly pattern: PreciseURLPattern<P>;
@@ -143,8 +143,18 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRo
 						requestId,
 					);
 
-					const result = await compose(middlewares, route.handler)(ctx);
-					return result || new Response("", { status: 200 });
+					try {
+						const result = await compose(middlewares, route.handler)(ctx);
+						return result || new Response("", { status: 200 });
+					} catch (err) {
+						if (err instanceof HttpError) {
+							return ctx.json(
+								{ error: err.message },
+								{ status: err.status, headers: err.headers },
+							);
+						}
+						throw err;
+					}
 				}
 
 				return await config.onNotFound(createContext(request, info, {} as any)) ??

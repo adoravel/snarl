@@ -4,7 +4,17 @@
  */
 
 import { CookieJar } from "./cookie.ts";
-import { httpMethods } from "./utils.ts";
+import {
+	BadRequestError,
+	ForbiddenError,
+	HttpError,
+	httpMethods,
+	InternalServerError,
+	NotFoundError,
+	TooManyRequestsError,
+	UnauthorizedError,
+} from "./utils.ts";
+import { extname, join, resolve } from "@std/path";
 import { encodeHex } from "@std/encoding/hex";
 
 export interface UploadedFile {
@@ -23,6 +33,7 @@ export interface Context<Params = Record<string, string>> {
 	readonly cookies: CookieJar;
 	readonly requestId: string;
 
+	bodyCache: unknown;
 	state: Map<string | symbol, unknown>;
 
 	json<T>(data: T, init?: ResponseInit): Response;
@@ -30,13 +41,17 @@ export interface Context<Params = Record<string, string>> {
 	text(content: string, init?: ResponseInit): Response;
 	redirect(url: string, status?: number): Response;
 
-	notFound(message?: string): Response;
-	badRequest(message?: string): Response;
-	unauthorized(message?: string): Response;
-	forbidden(message?: string): Response;
-	internalError(message?: string): Response;
+	notFound(message?: string): never;
+	badRequest(message?: string): never;
+	tooManyRequests(retryAfter?: string, message?: string): never;
+	unauthorized(message?: string): never;
+	forbidden(message?: string): never;
+	internalError(message?: string): never;
+
 	created<T>(data: T, init?: ResponseInit): Response;
 	noContent(): Response;
+
+	send(path: string, init?: ResponseInit): Promise<Response>;
 
 	body<T = any>(): Promise<T>;
 	formData(): Promise<FormData>;
@@ -95,6 +110,29 @@ function response(
 	});
 }
 
+export function getContentType(ext: string): string | undefined {
+	const contentTypes: Record<string, string> = {
+		".html": "text/html; charset=utf-8",
+		".css": "text/css; charset=utf-8",
+		".js": "application/javascript; charset=utf-8",
+		".mjs": "application/javascript; charset=utf-8",
+		".json": "application/json; charset=utf-8",
+		".png": "image/png",
+		".jpg": "image/jpeg",
+		".jpeg": "image/jpeg",
+		".gif": "image/gif",
+		".svg": "image/svg+xml",
+		".ico": "image/x-icon",
+		".woff": "font/woff",
+		".woff2": "font/woff2",
+		".ttf": "font/ttf",
+		".webp": "image/webp",
+		".webm": "video/webm",
+		".mp4": "video/mp4",
+	};
+	return contentTypes[ext];
+}
+
 export function createContext<P>(
 	request: Request,
 	sender: Deno.ServeHandlerInfo<Deno.NetAddr>,
@@ -112,7 +150,7 @@ export function createContext<P>(
 		state: new Map(),
 		requestId: requestId || crypto.randomUUID(),
 		cookies,
-
+		bodyCache: undefined,
 		json(data, init) {
 			return response(JSON.stringify(data), "application/json", cookies, init);
 		},
@@ -125,20 +163,42 @@ export function createContext<P>(
 		redirect(url, status = 302) {
 			return response(null, null, cookies, { status, headers: { Location: url } });
 		},
-		notFound(message = "Not Found") {
-			return response(JSON.stringify({ error: message }), "application/json", cookies, { status: 404 });
+		async send(path, init) {
+			try {
+				const safePath = resolve(Deno.cwd(), path);
+
+				const stat = await Deno.stat(safePath);
+				if (stat.isDirectory) throw new HttpError(400, "Cannot send directory");
+
+				const file = await Deno.readFile(safePath);
+				const ext = extname(safePath).toLowerCase();
+
+				const headers = new Headers(init?.headers);
+				headers.set("Content-Type", getContentType(ext) || "application/octet-stream");
+
+				return new Response(file, { ...init, headers });
+			} catch (e) {
+				if (e instanceof HttpError) throw e;
+				throw new HttpError(404, "File not found");
+			}
 		},
-		badRequest(message = "Bad Request") {
-			return response(JSON.stringify({ error: message }), "application/json", cookies, { status: 400 });
+		notFound(message = "Not Found"): never {
+			throw new NotFoundError(message);
 		},
-		unauthorized(message = "Unauthorized") {
-			return response(JSON.stringify({ error: message }), "application/json", cookies, { status: 401 });
+		badRequest(message = "Bad Request"): never {
+			throw new BadRequestError(message);
 		},
-		forbidden(message = "Forbidden") {
-			return response(JSON.stringify({ error: message }), "application/json", cookies, { status: 403 });
+		unauthorized(message = "Unauthorized"): never {
+			throw new UnauthorizedError(message);
 		},
-		internalError(message = "Internal Server Error") {
-			return response(JSON.stringify({ error: message }), "application/json", cookies, { status: 500 });
+		forbidden(message = "Forbidden"): never {
+			throw new ForbiddenError(message);
+		},
+		internalError(message = "Internal Server Error"): never {
+			throw new InternalServerError(message);
+		},
+		tooManyRequests(message = "Too Many Requests Error"): never {
+			throw new TooManyRequestsError(message);
 		},
 		created(data, init) {
 			return response(JSON.stringify(data), "application/json", cookies, { ...init, status: 201 });
@@ -147,6 +207,9 @@ export function createContext<P>(
 			return response(null, null, cookies, { status: 204 });
 		},
 		async body() {
+			if (this.bodyCache !== undefined) {
+				return this.bodyCache;
+			}
 			const text = await request.text();
 			try {
 				return JSON.parse(text);
@@ -277,45 +340,36 @@ export function staticFiles(root: string, options: {
 	etag?: boolean;
 } = {}): Middleware {
 	const { maxAge = 0, immutable = false, index = "index.html", etag = true } = options;
+	root = resolve(Deno.cwd(), root);
 
 	return async (ctx, next) => {
 		if (ctx.request.method !== "GET" && ctx.request.method !== "HEAD") {
 			return next();
 		}
 
+		const decodedPath = decodeURIComponent(ctx.url.pathname);
+		let filepath = resolve(root, decodedPath.slice(1));
+		if (!filepath.startsWith(root)) {
+			return next();
+		}
+
 		try {
-			let filepath = root + ctx.url.pathname;
 			const stat = await Deno.stat(filepath);
 
 			if (stat.isDirectory) {
-				filepath += "/" + index;
+				filepath = join(filepath, index);
+				try {
+					await Deno.stat(filepath);
+				} catch {
+					return next();
+				}
 			}
 
 			const file = await Deno.readFile(filepath);
-			const ext = filepath.split(".").pop()?.toLowerCase();
-
-			const contentTypes: Record<string, string> = {
-				html: "text/html; charset=utf-8",
-				css: "text/css; charset=utf-8",
-				js: "application/javascript; charset=utf-8",
-				mjs: "application/javascript; charset=utf-8",
-				json: "application/json; charset=utf-8",
-				png: "image/png",
-				jpg: "image/jpeg",
-				jpeg: "image/jpeg",
-				gif: "image/gif",
-				svg: "image/svg+xml",
-				ico: "image/x-icon",
-				woff: "font/woff",
-				woff2: "font/woff2",
-				ttf: "font/ttf",
-				webp: "image/webp",
-				webm: "video/webm",
-				mp4: "video/mp4",
-			};
+			const ext = extname(filepath).toLowerCase();
 
 			const headers = new Headers({
-				"Content-Type": contentTypes[ext || ""] || "application/octet-stream",
+				"Content-Type": getContentType(ext) || "application/octet-stream",
 			});
 
 			if (etag) {
@@ -333,15 +387,15 @@ export function staticFiles(root: string, options: {
 
 				if (!range) {
 					headers.set("Content-Range", `bytes */${file.length}`);
-					return new Response("Range Not Satisfiable", { status: 416, headers });
+					throw new HttpError(416, "Range Not Satisfiable", headers);
 				}
 
 				const { start, end } = range;
-				const chunksize = (end - start) + 1;
+				const chunkLen = (end - start) + 1;
 
 				headers.set("Content-Range", `bytes ${start}-${end}/${file.length}`);
 				headers.set("Accept-Ranges", "bytes");
-				headers.set("Content-Length", chunksize.toString());
+				headers.set("Content-Length", chunkLen.toString());
 
 				return new Response(file.slice(start, end + 1), { status: 206, headers });
 			}
@@ -391,18 +445,9 @@ export function rateLimit(options: {
 			requests.set(key, data);
 		}
 
-		data.count++;
-
-		if (data.count > max) {
-			return await handler?.(ctx) ?? ctx.json(
-				{ error: "Too Many Requests" },
-				{
-					status: 429,
-					headers: {
-						"Retry-After": Math.ceil((data.reset - now) / 1000).toString(),
-					},
-				},
-			);
+		if (++data.count > max) {
+			const retryAfter = Math.ceil((data.reset - now) / 1000).toString();
+			return await handler?.(ctx) ?? ctx.tooManyRequests(retryAfter);
 		}
 		return next();
 	};
@@ -502,7 +547,7 @@ export function jsonParser(): Middleware {
 
 		if (contentType?.includes("application/json")) {
 			try {
-				ctx.state.set("body", await ctx.body());
+				ctx.bodyCache = await ctx.body();
 			} catch (_e) {
 				return ctx.badRequest("Malformed JSON input");
 			}
@@ -523,7 +568,7 @@ export function formParser(): Middleware {
 				for (const [key, value] of formData.entries()) {
 					data[key] = value.toString();
 				}
-				ctx.state.set("body", data);
+				ctx.bodyCache = data;
 			} catch (_) {
 				return ctx.badRequest("Invalid form data");
 			}

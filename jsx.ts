@@ -17,7 +17,7 @@ const ESC_RE = /[&<>"']/g;
 
 export const Fragment = Symbol("jsx.fragment") as any as JsxElement;
 
-export type Component<P = Props> = (props: P) => JsxElement | Promise<JsxElement>;
+export type Component<P = Props> = (props: P) => JsxElement;
 
 export type JsxElement = string;
 
@@ -69,17 +69,16 @@ export function jsxTemplate(template: string[], ...values: unknown[]): string {
 	return html;
 }
 
-export async function jsx<P extends Props = Props>(
+export function jsx<P extends Props = Props>(
 	tag: string | Component<P> | typeof Fragment,
 	props: P | null = {} as P,
-): Promise<string> {
+): string {
 	props ??= {} as P;
 	const { children, dangerouslySetInnerHTML, ...attrs } = props;
 
 	if (tag === Fragment) return render(children);
 	if (typeof tag === "function") {
-		const result = tag(props);
-		return render(result instanceof Promise ? await result : result);
+		return render(tag(props));
 	}
 
 	let html = `<${tag}`;
