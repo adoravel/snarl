@@ -45,9 +45,9 @@ Deno.test("router - lists all routes", () => {
 	router.post("/users", () => {});
 
 	const routes = router.routes;
-	assertEquals(routes.length, 2);
-	assertEquals(routes[0].method, "GET");
-	assertEquals(routes[1].method, "POST");
+	assertEquals(routes["GET"].length + routes["POST"].length, 2);
+	assertEquals(routes["GET"][0].method, "GET");
+	assertEquals(routes["POST"][0].method, "POST");
 });
 
 Deno.test("middleware - rate limiter works", async () => {

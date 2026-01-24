@@ -33,7 +33,7 @@ interface RouterConfig {
 }
 
 interface Router {
-	routes: Route<any>[];
+	routes: Record<Method, Route<any>[]>;
 	middlewares: Middleware[];
 	config: RouterConfig;
 
@@ -73,7 +73,11 @@ type ExtendedRouter =
 	};
 
 export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRouter {
-	const routes: Route<any>[] = [];
+	const routes = Object.fromEntries(httpMethods.map((m) => [m, []])) as unknown as Record<
+		Method,
+		Route<any>[]
+	>;
+
 	const middlewares: Middleware[] = [];
 	const config = baseConfig as RouterConfig;
 
@@ -100,7 +104,7 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRo
 		on(method, path, handler, metadata) {
 			const pathname = typeof path === "string" ? (config.prefix + path) : path;
 
-			routes.push({
+			routes[method].push({
 				method,
 				pattern: typeof pathname !== "string" ? pathname : new URLPattern({ pathname }) as any,
 				handler: handler as any,
@@ -115,24 +119,26 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRo
 			});
 			configure(groupRouter);
 
-			routes.push(...groupRouter.routes);
+			for (const m of httpMethods) {
+				routes[m].push(...groupRouter.routes[m]);
+			}
 			return r as ExtendedRouter;
 		},
 		allRoutes() {
-			return routes.map((route) => ({
-				method: route.method,
-				pattern: route.pattern,
-				metadata: route.metadata,
-			}));
+			return httpMethods.flatMap((method) =>
+				routes[method].map((route) => ({
+					method,
+					pattern: route.pattern,
+					metadata: route.metadata,
+				}))
+			);
 		},
 		async fetch(request, info): Promise<Response> {
 			const method = request.method.toUpperCase() as Method;
 			const requestId = request.headers.get("X-Request-ID") || crypto.randomUUID();
 
 			try {
-				for (const route of routes) {
-					if (route.method !== method) continue;
-
+				for (const route of routes[method]) {
 					const match = route.pattern.exec(request.url);
 					if (!match) continue;
 

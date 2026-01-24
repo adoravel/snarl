@@ -49,7 +49,7 @@ export interface Context<Params = Record<string, string>> {
 
 	notFound(message?: string): never;
 	badRequest(message?: string): never;
-	tooManyRequests(retryAfter?: string, message?: string): never;
+	tooManyRequests(message?: string, retryAfter?: string): never;
 	unauthorized(message?: string): never;
 	forbidden(message?: string): never;
 	internalError(message?: string): never;
@@ -126,6 +126,8 @@ export function getContentType(ext: string): string | undefined {
 		".js": "application/javascript; charset=utf-8",
 		".mjs": "application/javascript; charset=utf-8",
 		".json": "application/json; charset=utf-8",
+		".txt": "text/plain; charset=utf-8",
+		".xml": "application/xml",
 		".png": "image/png",
 		".jpg": "image/jpeg",
 		".jpeg": "image/jpeg",
@@ -193,7 +195,7 @@ export function createContext<P>(
 
 				const resHeaders = new Headers(init?.headers);
 				resHeaders.set("Content-Type", getContentType(ext) || "application/octet-stream");
-				headers.forEach((v, k) => headers.set(k, v));
+				headers.forEach((v, k) => resHeaders.set(k, v));
 
 				return new Response(file, { ...init, headers: resHeaders });
 			} catch (e) {
@@ -216,8 +218,8 @@ export function createContext<P>(
 		internalError(message = "Internal Server Error"): never {
 			throw new InternalServerError(message);
 		},
-		tooManyRequests(message = "Too Many Requests Error"): never {
-			throw new TooManyRequestsError(message);
+		tooManyRequests(message = "Too Many Requests Error", retryAfter?: string): never {
+			throw new TooManyRequestsError(message, retryAfter);
 		},
 		created(data, init) {
 			return response(JSON.stringify(data), "application/json", cookies, headers, { ...init, status: 201 });
@@ -347,7 +349,7 @@ export function cors(options: {
 }
 
 async function hashFile(message: Uint8Array<ArrayBuffer>): Promise<string> {
-	const buf = await crypto.subtle.digest("SHA-1", message);
+	const buf = await crypto.subtle.digest("SHA-256", message);
 	return encodeHex(buf);
 }
 
@@ -465,7 +467,7 @@ export function rateLimit(options: {
 
 		if (++data.count > max) {
 			const retryAfter = Math.ceil((data.reset - now) / 1000).toString();
-			return await handler?.(ctx) ?? ctx.tooManyRequests(retryAfter);
+			return await handler?.(ctx) ?? ctx.tooManyRequests(undefined, retryAfter);
 		}
 		return next();
 	};
