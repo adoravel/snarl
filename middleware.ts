@@ -33,6 +33,12 @@ export interface Context<Params = Record<string, string>> {
 	readonly cookies: CookieJar;
 	readonly requestId: string;
 
+	readonly query: URLSearchParams;
+	readonly headers: Headers;
+
+	get(name: string): string | null;
+	set(name: string, value: string): void;
+
 	bodyCache: unknown;
 	state: Map<string | symbol, unknown>;
 
@@ -95,10 +101,13 @@ function response(
 	data: BodyInit | null,
 	contentType: string | null,
 	cookies: CookieJar,
+	arbitraryHeaders: Headers,
 	init?: ResponseInit,
 ): Response {
 	const headers = new Headers(init?.headers);
 	if (contentType) headers.set("Content-Type", contentType);
+
+	arbitraryHeaders.forEach((value, key) => headers.set(key, value));
 
 	for (const setCookie of cookies.getSetCookieHeaders()) {
 		headers.append("Set-Cookie", setCookie);
@@ -141,6 +150,7 @@ export function createContext<P>(
 ): Context<P> {
 	const url = new URL(request.url);
 	const cookies = new CookieJar(request.headers.get("Cookie"));
+	const headers = new Headers();
 
 	return {
 		request,
@@ -151,17 +161,25 @@ export function createContext<P>(
 		requestId: requestId || crypto.randomUUID(),
 		cookies,
 		bodyCache: undefined,
+		query: url.searchParams,
+		headers,
+		get(name: string): string | null {
+			return headers.get(name);
+		},
+		set(name: string, value: string): void {
+			headers.set(name, value);
+		},
 		json(data, init) {
-			return response(JSON.stringify(data), "application/json", cookies, init);
+			return response(JSON.stringify(data), "application/json", cookies, headers, init);
 		},
 		html(content, init) {
-			return response(content, "text/html; charset=utf-8", cookies, init);
+			return response(content, "text/html; charset=utf-8", cookies, headers, init);
 		},
 		text(content, init) {
-			return response(content, "text/plain; charset=utf-8", cookies, init);
+			return response(content, "text/plain; charset=utf-8", cookies, headers, init);
 		},
 		redirect(url, status = 302) {
-			return response(null, null, cookies, { status, headers: { Location: url } });
+			return response(null, null, cookies, headers, { status, headers: { Location: url } });
 		},
 		async send(path, init) {
 			try {
@@ -173,10 +191,11 @@ export function createContext<P>(
 				const file = await Deno.readFile(safePath);
 				const ext = extname(safePath).toLowerCase();
 
-				const headers = new Headers(init?.headers);
-				headers.set("Content-Type", getContentType(ext) || "application/octet-stream");
+				const resHeaders = new Headers(init?.headers);
+				resHeaders.set("Content-Type", getContentType(ext) || "application/octet-stream");
+				headers.forEach((v, k) => headers.set(k, v));
 
-				return new Response(file, { ...init, headers });
+				return new Response(file, { ...init, headers: resHeaders });
 			} catch (e) {
 				if (e instanceof HttpError) throw e;
 				throw new HttpError(404, "File not found");
@@ -201,10 +220,10 @@ export function createContext<P>(
 			throw new TooManyRequestsError(message);
 		},
 		created(data, init) {
-			return response(JSON.stringify(data), "application/json", cookies, { ...init, status: 201 });
+			return response(JSON.stringify(data), "application/json", cookies, headers, { ...init, status: 201 });
 		},
 		noContent() {
-			return response(null, null, cookies, { status: 204 });
+			return response(null, null, cookies, headers, { status: 204 });
 		},
 		async body() {
 			if (this.bodyCache !== undefined) {
@@ -227,13 +246,12 @@ export function createContext<P>(
 
 			for (const [name, value] of formData.entries()) {
 				if (value instanceof File) {
-					const content = new Uint8Array(await value.arrayBuffer());
 					files[name] = {
 						name,
 						filename: value.name,
 						type: value.type,
 						size: value.size,
-						content,
+						content: new Uint8Array(await value.arrayBuffer()),
 					};
 				} else {
 					fields[name] = value;

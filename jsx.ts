@@ -17,7 +17,7 @@ const ESC_RE = /[&<>"']/g;
 
 export const Fragment = Symbol("jsx.fragment") as any as JsxElement;
 
-export type Component<P = Props> = (props: P) => JsxElement;
+export type Component<P = Props> = (props: P) => JsxElement | Promise<JsxElement>;
 
 export type JsxElement = string;
 
@@ -48,14 +48,27 @@ export function jsxAttr(k: string, v: unknown): string {
 	return ` ${k}="${jsxEscape(String(v))}"`;
 }
 
-function render(node: any): string {
+function render(node: any): string | Promise<string> {
 	if (node == null || typeof node === "boolean") return "";
 	if (typeof node === "string") return node;
+
 	if (node instanceof Promise) {
-		throw new Error("async components must be awaited before rendering");
+		return node.then(render);
 	}
-	if (typeof node === "function") return node();
-	if (Array.isArray(node)) return node.map(render).join("");
+
+	if (typeof node === "function") return render(node());
+	if (Array.isArray(node)) {
+		let hasPromise = false;
+		const mapped = node.map((child) => {
+			const res = render(child);
+			if (res instanceof Promise) hasPromise = true;
+			return res;
+		});
+		if (hasPromise) {
+			return Promise.all(mapped).then((parts) => parts.join(""));
+		}
+		return (mapped as string[]).join("");
+	}
 
 	return jsxEscape(String(node));
 }
@@ -72,13 +85,14 @@ export function jsxTemplate(template: string[], ...values: unknown[]): string {
 export function jsx<P extends Props = Props>(
 	tag: string | Component<P> | typeof Fragment,
 	props: P | null = {} as P,
-): string {
+): string | Promise<string> {
 	props ??= {} as P;
 	const { children, dangerouslySetInnerHTML, ...attrs } = props;
 
 	if (tag === Fragment) return render(children);
 	if (typeof tag === "function") {
-		return render(tag(props));
+		const result = tag(props);
+		return result instanceof Promise ? result.then(render) : render(result);
 	}
 
 	let html = `<${tag}`;
@@ -90,7 +104,11 @@ export function jsx<P extends Props = Props>(
 	html += isVoid ? "/>" : ">";
 
 	if (!isVoid) {
-		html += dangerouslySetInnerHTML?.__html ?? render(children);
+		const inner = render(children);
+		if (inner instanceof Promise) {
+			return inner.then((c) => html + (dangerouslySetInnerHTML?.__html ?? c) + `</${tag}>`);
+		}
+		html += dangerouslySetInnerHTML?.__html ?? inner;
 		html += `</${tag}>`;
 	}
 	return html;

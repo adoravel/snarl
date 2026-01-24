@@ -96,6 +96,7 @@ export class CookieJar {
 
 	set(name: string, value: string, options?: CookieOptions): void {
 		this.cookies[name] = value;
+		this.setCookieHeaders = this.setCookieHeaders.filter((h) => !h.startsWith(`${name}=`));
 		this.setCookieHeaders.push(serializeCookie(name, value, options));
 	}
 
