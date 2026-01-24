@@ -106,8 +106,8 @@ Deno.test("context", async (t) => {
 		const router = createRouter();
 		router.use(jsonParser());
 		router.post("/", async (ctx) => {
-			const body1 = await ctx.body<{ msg: string }>();
-			const body2 = await ctx.body<{ msg: string }>();
+			const body1 = await ctx.body.json<{ msg: string }>();
+			const body2 = await ctx.body.json<{ msg: string }>();
 			return ctx.json({ body1, body2 });
 		});
 

@@ -59,7 +59,10 @@ export interface Context<Params = Record<string, string>> {
 
 	send(path: string, init?: ResponseInit): Promise<Response>;
 
-	body<T = any>(): Promise<T>;
+	body: {
+		plain(): Promise<string>;
+		json<T = any>(): Promise<T>;
+	};
 	formData(): Promise<FormData>;
 
 	multipart(): Promise<{
@@ -154,7 +157,7 @@ export function createContext<P>(
 	const cookies = new CookieJar(request.headers.get("Cookie"));
 	const headers = new Headers();
 
-	return {
+	const context: Context<P> = {
 		request,
 		sender,
 		params,
@@ -227,16 +230,14 @@ export function createContext<P>(
 		noContent() {
 			return response(null, null, cookies, headers, { status: 204 });
 		},
-		async body() {
-			if (this.bodyCache !== undefined) {
-				return this.bodyCache;
-			}
-			const text = await request.text();
-			try {
-				return JSON.parse(text);
-			} catch {
-				return text;
-			}
+
+		body: {
+			async plain() {
+				return context.bodyCache ? JSON.stringify(context.bodyCache) : await request.text();
+			},
+			async json() {
+				return context.bodyCache ?? await request.json();
+			},
 		},
 		formData() {
 			return request.formData();
@@ -263,6 +264,7 @@ export function createContext<P>(
 			return { fields, files };
 		},
 	};
+	return context;
 }
 
 export function requestId(): Middleware {
@@ -567,7 +569,7 @@ export function jsonParser(): Middleware {
 
 		if (contentType?.includes("application/json")) {
 			try {
-				ctx.bodyCache = await ctx.body();
+				ctx.bodyCache = await ctx.body.json();
 			} catch (_e) {
 				return ctx.badRequest("Malformed JSON input");
 			}

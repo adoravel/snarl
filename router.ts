@@ -134,8 +134,12 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRo
 			);
 		},
 		async fetch(request, info): Promise<Response> {
-			const method = request.method.toUpperCase() as Method;
+			let method = request.method.toUpperCase() as Method;
 			const requestId = request.headers.get("X-Request-ID") || crypto.randomUUID();
+
+			if (method === "HEAD" && routes["HEAD"].length === 0) {
+				method = "GET";
+			}
 
 			try {
 				let route: Route<any> | undefined;
@@ -166,8 +170,15 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRo
 				);
 
 				try {
-					const result = await compose(middlewares, handle)(ctx);
-					return result || new Response("", { status: 200 });
+					const response = await compose(middlewares, handle)(ctx);
+					if (request.method.toUpperCase() === "HEAD" && response?.body) {
+						return new Response(null, {
+							status: response.status,
+							statusText: response.statusText,
+							headers: response.headers,
+						});
+					}
+					return response || new Response("", { status: 200 });
 				} catch (err) {
 					if (err instanceof HttpError) {
 						return ctx.json(
