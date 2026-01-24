@@ -23,125 +23,124 @@ import { extname, join, resolve } from "@std/path";
 import { encodeHex } from "@std/encoding/hex";
 
 /**
- * Represents a file uploaded via `multipart/form-data`.
+ * represents a file uploaded via `multipart/form-data`
  */
 export interface UploadedFile {
-	/** The field name in the form. */
+	/** the field name in the form */
 	name: string;
-	/** The filename provided by the client. */
+	/** the filename provided by the client */
 	filename: string;
-	/** The MIME type provided by the client. */
+	/** the MIME type provided by the client */
 	type: string;
-	/** The size of the file in bytes. */
+	/** the size of the file in bytes */
 	size: number;
-	/** The raw file content. */
+	/** the raw file content */
 	content: Uint8Array;
 }
 
 /**
- * The Context object represents a single HTTP request/response lifecycle.
- * It holds request data, response helpers, and middleware state.
+ * the Context object represents a single HTTP request/response lifecycle,
+ * holding request data and middleware state and providing response helpers
  */
 export interface Context<Params = Record<string, string>> {
-	/** The incoming Request object. */
+	/** the incoming Request object */
 	readonly request: Request;
-	/** Deno's connection info (remote address). */
+	/** Deno's connection info (remote address) */
 	readonly sender: Deno.ServeHandlerInfo<Deno.NetAddr>;
-	/** Parameters extracted from the URL path (e.g., `:id`). */
+	/** parameters extracted from the url path (e.g., `:id`) */
 	readonly params: Params;
-	/** The parsed URL. */
+	/** the parsed url */
 	readonly url: URL;
-	/** A helper to manage cookies (request and response). */
+	/** a helper to manage cookies (request and response) */
 	readonly cookies: CookieJar;
-	/** A unique identifier for this request. */
+	/** a unique identifier for this request */
 	readonly requestId: string;
 
-	/** The URL search params object. */
+	/** the url search params object */
 	readonly query: URLSearchParams;
-	/** Headers for the outgoing response. */
+	/** headers for the outgoing response */
 	readonly headers: Headers;
 
-	/** Gets a specific outgoing header value. */
+	/** gets a specific outgoing header value */
 	get(name: string): string | null;
-	/** Sets an outgoing header value. */
+	/** sets an outgoing header value */
 	set(name: string, value: string): void;
 
-	/** Internal cache for body parsing. Used by `ctx.body` methods. */
+	/** internal cache for body parsing */
 	bodyCache: unknown;
-	/** Shared state map for middleware. */
+	/** shared state map for middleware */
 	state: Map<string | symbol, unknown>;
 
 	/**
-	 * Sends a JSON response.
-	 * @param data - The object to serialize.
-	 * @param init - Optional ResponseInit (status, headers).
+	 * sends a JSON response
+	 * @param data the object to serialize
+	 * @param init optional ResponseInit body
 	 */
 	json<T>(data: T, init?: ResponseInit): Response;
 	/**
-	 * Sends an HTML response.
-	 * @param content - The HTML string.
-	 * @param init - Optional ResponseInit.
+	 * sends an HTML response
+	 * @param content the html input to be sent
+	 * @param init optional ResponseInit body
 	 */
 	html(content: string, init?: ResponseInit): Response;
 	/**
-	 * Sends a plain text response.
-	 * @param content - The text string.
-	 * @param init - Optional ResponseInit.
+	 * sends a plain text response
+	 * @param content the plain text input to be sent
+	 * @param init optional ResponseInit body
 	 */
 	text(content: string, init?: ResponseInit): Response;
 	/**
-	 * Redirects to a different URL.
-	 * @param url - The URL to redirect to.
-	 * @param status - The HTTP status code (defaults to 302).
+	 * redirects to a different url
+	 * @param url the url to redirect to
+	 * @param status the HTTP status code (defaults to 302)
 	 */
 	redirect(url: string, status?: number): Response;
 
-	/** Throws a 404 Not Found error. */
+	/** throws a 404 Not Found error */
 	notFound(message?: string): never;
-	/** Throws a 400 Bad Request error. */
+	/** throws a 400 Bad Request error */
 	badRequest(message?: string): never;
-	/** Throws a 429 Too Many Requests error. */
+	/** throws a 429 Too Many Requests error */
 	tooManyRequests(message?: string, retryAfter?: string): never;
-	/** Throws a 401 Unauthorized error. */
+	/** throws a 401 Unauthorized error */
 	unauthorized(message?: string): never;
-	/** Throws a 403 Forbidden error. */
+	/** throws a 403 Forbidden error */
 	forbidden(message?: string): never;
-	/** Throws a 500 Internal Server Error. */
+	/** throws a 500 Internal Server Error */
 	internalError(message?: string): never;
 
-	/** Sends a 201 Created JSON response. */
+	/** sends a 201 Created JSON response */
 	created<T>(data: T, init?: ResponseInit): Response;
-	/** Sends a 204 No Content response. */
+	/** sends a 204 No Content response */
 	noContent(): Response;
 
 	/**
-	 * Sends a file from the filesystem.
-	 * Uses `getContentType` to detect MIME type automatically.
-	 * @param path - The relative or absolute path to the file.
-	 * @param init - Optional ResponseInit.
+	 * sends a file from the filesystem.
+	 * @param path the relative or absolute path to the file
+	 * @param init optional ResponseInit body
 	 */
 	send(path: string, init?: ResponseInit): Promise<Response>;
 
-	/** Methods for accessing the request body. */
+	/** methods for accessing the request body */
 	body: {
 		/**
-		 * Returns the body as a string.
-		 * If the body was previously parsed as JSON, it returns `JSON.stringify` of the cache.
+		 * returns the body as a string.
+		 * if the body was previously parsed as JSON, it returns `JSON.stringify` of the cache
 		 */
 		plain(): Promise<string>;
 		/**
-		 * Returns the body as a parsed JSON object.
-		 * Uses native `request.json()` for efficiency.
+		 * returns the body as a parsed JSON object.
+		 * uses native `request.json()` for efficiency
 		 */
 		json<T = any>(): Promise<T>;
 	};
 
-	/** Returns the body as a `FormData` object. */
+	/** returns the body as a `FormData` object */
 	formData(): Promise<FormData>;
 
 	/**
-	 * Parses the body as `multipart/form-data`.
-	 * @returns Fields and files extracted from the request.
+	 * parses the body as `multipart/form-data`
+	 * @returns fields and files extracted from the request
 	 */
 	multipart(): Promise<{
 		fields: Record<string, string>;
@@ -150,30 +149,30 @@ export interface Context<Params = Record<string, string>> {
 }
 
 /**
- * A route handler function.
- * @template C - The type of route parameters.
+ * a route handler function
+ * @template C the type of route parameters
  */
 export interface Handler<C> {
 	(ctx: Context<C>): Response | Promise<Response> | void | Promise<void>;
 }
 
 /**
- * A middleware function.
- * Middleware can modify the Context or modify the Response.
+ * a middleware function
+ * `Middleware` can modify the `Context` or modify the `Response`
  */
 export interface Middleware {
 	(ctx: Context, next: () => Promise<Response>): Response | Promise<Response>;
 }
 
 /**
- * An error handler function for top-level error catching.
+ * an error handler function for top-level error catching
  */
 export interface ErrorHandler {
 	(error: Error, ctx: Context): Response | Promise<Response>;
 }
 
 /**
- * Composes an array of middleware functions with a final handler.
+ * composes an array of middleware functions with a final handler
  */
 export function compose(middlewares: Middleware[], handler: Handler<any>): Handler<any> {
 	if (!middlewares.length) return handler;
@@ -240,7 +239,7 @@ function getContentType(ext: string): string | undefined {
 }
 
 /**
- * Creates a new Context object.
+ * creates a new `Context` object
  */
 export function createContext<P>(
 	request: Request,
@@ -363,7 +362,7 @@ export function createContext<P>(
 }
 
 /**
- * Middleware that logs HTTP request details (method, path, status, latency).
+ * middleware that logs HTTP request details
  */
 export function logger(options: {
 	format?: (ctx: Context, ms: number, status: number) => string;
@@ -444,8 +443,8 @@ async function hashFile(message: Uint8Array<ArrayBuffer>): Promise<string> {
 }
 
 /**
- * Serves static files from a directory.
- * Handles ETag caching, Range requests, and prevents directory traversal.
+ * serves static files from a directory.
+ * handles ETag caching, range requests, and prevents directory traversal
  */
 export function staticFiles(root: string, options: {
 	maxAge?: number;
@@ -577,7 +576,7 @@ export function rateLimit(options: {
 }
 
 /**
- * Middleware that adds security headers to the response.
+ * middleware that adds security headers to the response
  */
 export function securityHeaders(options: {
 	contentSecurityPolicy?: string;
@@ -663,7 +662,7 @@ export function securityHeaders(options: {
 }
 
 /**
- * Middleware that parses `application/json` bodies.
+ * middleware that parses `application/json` bodies
  */
 export function jsonParser(): Middleware {
 	return async (ctx, next) => {
@@ -681,7 +680,7 @@ export function jsonParser(): Middleware {
 }
 
 /**
- * Middleware that parses `application/x-www-form-urlencoded` bodies.
+ * middleware that parses `application/x-www-form-urlencoded` bodies
  */
 export function formParser(): Middleware {
 	return async (ctx, next) => {

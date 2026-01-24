@@ -19,7 +19,7 @@ export interface Route<P extends string> {
 }
 
 /**
- * Metadata that can be attached to routes for documentation or OpenAPI generation.
+ * metadata that can be attached to routes for documentation (usually openapi)
  */
 export interface RouteMetadata {
 	description?: string;
@@ -69,7 +69,7 @@ interface Router {
 }
 
 /**
- * The extended router interface that includes convenience methods (get, post, etc.).
+ * the extended router interface that includes convenience methods (`GET`, `POST`, etc.).
  */
 type ExtendedRouter =
 	& Router
@@ -84,9 +84,8 @@ type ExtendedRouter =
 	};
 
 /**
- * Creates a new Router instance.
- * @param baseConfig - Optional configuration for the router (error handlers, prefix).
- * @returns A router instance with support for chaining and method shortcuts.
+ * creates a new `Router` instance
+ * @param baseConfig optional configuration for the router
  */
 export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRouter {
 	const routes = Object.fromEntries(httpMethods.map((m) => [m, []])) as unknown as Record<

@@ -9,44 +9,44 @@
  */
 
 /**
- * Configuration options for setting a cookie.
+ * configuration options for setting a cookie
  */
 export interface CookieOptions {
 	/**
-	 * The expiration date of the cookie. If omitted, the cookie becomes a session cookie.
+	 * the expiration date of the cookie. if omitted, the cookie becomes a session cookie
 	 */
 	expires?: Date;
 	/**
-	 * The max-age of the cookie in seconds.
+	 * the maximum age of the cookie in seconds
 	 */
 	maxAge?: number;
 	/**
-	 * The domain for which the cookie is valid.
+	 * the domain for which the cookie is valid
 	 */
 	domain?: string;
 	/**
-	 * The path for which the cookie is valid. Defaults to "/".
+	 * the path for which the cookie is valid. defaults to `/`
 	 */
 	path?: string;
 	/**
-	 * If true, the cookie is only sent over HTTPS. Defaults to true.
+	 * whether the cookie will only be sent if the connection is established through HTTPS. defaults to `true`
 	 */
 	secure?: boolean;
 	/**
-	 * If true, the cookie cannot be accessed via JavaScript. Defaults to true.
+	 * whether the cookie disallows to be accessed via javascript. defaults to `true`
 	 */
 	httpOnly?: boolean;
 	/**
-	 * The SameSite attribute (Strict, Lax, or None).
-	 * Defaults to "Lax" if not provided.
+	 * the `SameSite` attribute (`Strict`, `Lax`, or `None`).
+	 * Defaults to `Lax`
 	 */
 	sameSite?: "Strict" | "Lax" | "None";
 }
 
 /**
- * Parses the `Cookie` header string into an object.
- * @param header - The value of the `Cookie` request header.
- * @returns An object mapping cookie names to their decoded values.
+ * parses the `Cookie` header string into an object
+ * @param header the value of the `Cookie` request header
+ * @returns an object mapping cookie names to their decoded values
  * @example
  * parseCookies("session=mrrp; user=meow") // { session: "mrrp", user: "meow" }
  */
@@ -75,11 +75,11 @@ export function parseCookies(header: string | null): Record<string, string> {
 }
 
 /**
- * Serializes a cookie into a `Set-Cookie` header string.
- * @param name - The name of the cookie.
- * @param value - The value of the cookie.
- * @param options - Additional options for the cookie.
- * @returns A formatted `Set-Cookie` header string.
+ * serializes a cookie into a `Set-Cookie` header string
+ * @param name the name of the cookie
+ * @param value the value of the cookie
+ * @param options additional options for the cookie
+ * @returns a formatted `Set-Cookie` header string
  */
 export function serializeCookie(
 	name: string,
@@ -116,10 +116,10 @@ export function serializeCookie(
 }
 
 /**
- * Creates a `Set-Cookie` header string that instructs the client to delete a cookie.
- * @param name - The name of the cookie to delete.
- * @param options - Options such as domain or path to ensure the cookie matches correctly.
- * @returns A formatted `Set-Cookie` header string.
+ * creates a `Set-Cookie` header string that instructs the client to delete a cookie
+ * @param name the name of the cookie to delete
+ * @param options options such as domain or path to ensure the cookie matches correctly
+ * @returns a formatted `Set-Cookie` header string
  */
 export function deleteCookie(
 	name: string,
@@ -133,35 +133,34 @@ export function deleteCookie(
 }
 
 /**
- * A helper class to manage request cookies (input) and response cookies (output).
+ * a helper class to manage request cookies (input) and response cookies (output)
  */
 export class CookieJar {
 	private cookies: Record<string, string>;
 	private setCookieHeaders: string[] = [];
 
 	/**
-	 * Creates a new CookieJar instance.
-	 * @param cookieHeader - The value of the `Cookie` request header.
+	 * parses the `Cookie` header and creates a new `CookieJar` instance
+	 * @param header the value of the `Cookie` request header
 	 */
-	constructor(cookieHeader: string | null) {
-		this.cookies = parseCookies(cookieHeader);
+	constructor(header: string | null) {
+		this.cookies = parseCookies(header);
 	}
 
 	/**
-	 * Gets a cookie value from the request.
-	 * @param name - The name of the cookie.
-	 * @returns The cookie value or undefined if not found.
+	 * gets a cookie value from the request
+	 * @param name the name of the cookie
+	 * @returns the cookie value or undefined if not found
 	 */
 	get(name: string): string | undefined {
 		return this.cookies[name];
 	}
 
 	/**
-	 * Sets a cookie to be sent in the response.
-	 * If a cookie with this name has already been set in this instance, it is replaced.
-	 * @param name - The name of the cookie.
-	 * @param value - The value of the cookie.
-	 * @param options - Options for the cookie (path, maxAge, etc.).
+	 * sets and overwrites (if previously set) a cookie to be sent in the response.
+	 * @param name the name of the cookie
+	 * @param value the value of the cookie
+	 * @param options options for the cookie (`path`, `maxAge`, etc.)
 	 */
 	set(name: string, value: string, options?: CookieOptions): void {
 		this.cookies[name] = value;
@@ -170,9 +169,9 @@ export class CookieJar {
 	}
 
 	/**
-	 * Deletes a cookie by setting its expiration to the past.
-	 * @param name - The name of the cookie to delete.
-	 * @param options - Options such as domain/path to ensure correct matching.
+	 * deletes a cookie by setting its expiration to the past
+	 * @param name the name of the cookie to delete
+	 * @param options options such as domain/path to ensure correct matching
 	 */
 	delete(name: string, options?: Omit<CookieOptions, "expires" | "maxAge">): void {
 		delete this.cookies[name];
@@ -180,25 +179,25 @@ export class CookieJar {
 	}
 
 	/**
-	 * Checks if a cookie exists in the request.
-	 * @param name - The name of the cookie.
-	 * @returns True if the cookie exists.
+	 * checks if a cookie exists in the request
+	 * @param name the name of the cookie
+	 * @returns whether the cookie exists
 	 */
 	has(name: string): boolean {
 		return name in this.cookies;
 	}
 
 	/**
-	 * Returns a copy of all cookies from the request.
-	 * @returns An object of all cookie names and values.
+	 * returns a copy of all cookies from the request
+	 * @returns an object of all cookie names and values
 	 */
 	allCookies(): Record<string, string> {
 		return { ...this.cookies };
 	}
 
 	/**
-	 * Gets the list of `Set-Cookie` header strings to be sent in the response.
-	 * @returns An array of header strings.
+	 * gets the list of `Set-Cookie` header strings to be sent in the response
+	 * @returns an array of header strings
 	 */
 	get headers(): string[] {
 		return this.setCookieHeaders;

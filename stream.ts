@@ -11,23 +11,23 @@
 import { Context } from "./middleware.ts";
 
 /**
- * Represents a message sent over Server-Sent Events.
+ * represents a message sent over server-sent events
  */
 export interface SSEMessage {
-	/** The event name (optional). */
+	/** the event name */
 	event?: string;
-	/** The data payload. */
+	/** the data payload */
 	data: string;
-	/** The event ID (optional). */
+	/** the event identifier */
 	id?: string;
-	/** The reconnection time in ms (optional). */
+	/** the reconnection time in milliseconds */
 	retry?: number;
 }
 
 /**
- * Creates a Response that streams Server-Sent Events.
- * @param source - An async iterable or a function returning one.
- * @param init - Optional ResponseInit.
+ * creates a `Response` that streams server-sent events
+ * @param source an async iterable or a function returning one
+ * @param init optional `ResponseInit` body.
  */
 export function sse(
 	source: AsyncIterable<SSEMessage> | (() => AsyncIterable<SSEMessage>),
@@ -79,7 +79,7 @@ export function sse(
 }
 
 /**
- * Handlers for WebSocket lifecycle events.
+ * handlers for WebSocket lifecycle events
  */
 export interface WebSocketHandler {
 	onOpen?: (ws: WebSocket) => void | Promise<void>;
@@ -89,10 +89,9 @@ export interface WebSocketHandler {
 }
 
 /**
- * Upgrades an incoming HTTP connection to a WebSocket connection.
- * @param ctx - The request context.
- * @param handler - The WebSocket event handlers.
- * @returns The appropriate Response to perform the upgrade.
+ * upgrades an incoming HTTP connection to a WebSocket connection
+ * @param ctx the request context
+ * @param handler the WebSocket event handlers
  */
 export function upgradeWebSocket(
 	ctx: Context,
@@ -138,9 +137,9 @@ export function upgradeWebSocket(
 }
 
 /**
- * Creates a streaming Response from an async iterable of data.
- * @param source - An async iterable of strings or Uint8Arrays.
- * @param init - Optional ResponseInit.
+ * creates a streaming Response from an async iterable of data
+ * @param source an async iterable of strings or Uint8Arrays
+ * @param init optional `ResponseInit` body
  */
 export function stream(
 	source: AsyncIterable<string | Uint8Array> | (() => AsyncIterable<string | Uint8Array>),
