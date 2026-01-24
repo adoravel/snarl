@@ -1,11 +1,11 @@
 /**
- * Copyright (c) 2025 adoravel
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * @module stream
+ * Utilities for Server-Sent Events (SSE), WebSockets, and generic streaming responses.
  */
 
 /**
- * @module stream
- * Utilities for Server-Sent Events (SSE), WebSockets, and generic streaming responses.
+ * Copyright (c) 2025 adoravel
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 import { Context } from "./middleware.ts";

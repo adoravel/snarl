@@ -1,11 +1,11 @@
 /**
- * Copyright (c) 2025 adoravel
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * @module cookie
+ * Utilities for parsing, serializing, and managing HTTP Cookies.
  */
 
 /**
- * @module cookie
- * Utilities for parsing, serializing, and managing HTTP Cookies.
+ * Copyright (c) 2025 adoravel
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 /**

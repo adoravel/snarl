@@ -1,4 +1,9 @@
 /**
+ * @module jsx
+ * Minimal async-aware, JSX `precompile` renderer.
+ */
+
+/**
  * Copyright (c) 2025 adoravel
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

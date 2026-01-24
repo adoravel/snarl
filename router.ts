@@ -1,11 +1,11 @@
 /**
- * Copyright (c) 2025 adoravel
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * @module router
+ * The HTTP Router implementation with type-safe path parameters and middleware support.
  */
 
 /**
- * @module router
- * The HTTP Router implementation with type-safe path parameters and middleware support.
+ * Copyright (c) 2025 adoravel
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 import { compose, createContext, ErrorHandler, Handler, Middleware } from "./middleware.ts";

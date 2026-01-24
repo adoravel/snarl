@@ -1,11 +1,11 @@
 /**
- * Copyright (c) 2025 adoravel
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * @module middleware
+ * Provides the `Context` interface, request handling, and built-in middleware.
  */
 
 /**
- * @module middleware
- * Provides the `Context` interface, request handling, and built-in middleware.
+ * Copyright (c) 2025 adoravel
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 import { CookieJar } from "./cookie.ts";

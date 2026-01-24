@@ -1,11 +1,11 @@
 /**
- * Copyright (c) 2025 adoravel
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * @module utils
+ * Shared utility types, HTTP Error classes, and routing helpers.
  */
 
 /**
- * @module utils
- * Shared utility types, HTTP Error classes, and routing helpers.
+ * Copyright (c) 2025 adoravel
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 export const httpMethods = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] as const;
