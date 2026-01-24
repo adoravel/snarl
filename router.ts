@@ -3,6 +3,11 @@
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
+/**
+ * @module router
+ * The HTTP Router implementation with type-safe path parameters and middleware support.
+ */
+
 import { compose, createContext, ErrorHandler, Handler, Middleware } from "./middleware.ts";
 import { HttpError, httpMethods, Method, ParametersOf, PreciseURLPattern } from "./utils.ts";
 
@@ -13,6 +18,9 @@ export interface Route<P extends string> {
 	metadata?: RouteMetadata;
 }
 
+/**
+ * Metadata that can be attached to routes for documentation or OpenAPI generation.
+ */
 export interface RouteMetadata {
 	description?: string;
 	tags?: string[];
@@ -60,6 +68,9 @@ interface Router {
 	}>;
 }
 
+/**
+ * The extended router interface that includes convenience methods (get, post, etc.).
+ */
 type ExtendedRouter =
 	& Router
 	& {
@@ -72,6 +83,11 @@ type ExtendedRouter =
 		) => Router;
 	};
 
+/**
+ * Creates a new Router instance.
+ * @param baseConfig - Optional configuration for the router (error handlers, prefix).
+ * @returns A router instance with support for chaining and method shortcuts.
+ */
 export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRouter {
 	const routes = Object.fromEntries(httpMethods.map((m) => [m, []])) as unknown as Record<
 		Method,

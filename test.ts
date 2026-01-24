@@ -28,7 +28,7 @@ Deno.test("cookies", async (t) => {
 		jar.set("session", "first", { path: "/" });
 		jar.set("session", "bleh", { path: "/" });
 
-		const headers = jar.getSetCookieHeaders();
+		const { headers } = jar;
 		assertEquals(headers.length, 1);
 		assertEquals(headers[0].includes("session=bleh"), true);
 	});

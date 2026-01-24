@@ -3,15 +3,32 @@
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
+/**
+ * @module stream
+ * Utilities for Server-Sent Events (SSE), WebSockets, and generic streaming responses.
+ */
+
 import { Context } from "./middleware.ts";
 
+/**
+ * Represents a message sent over Server-Sent Events.
+ */
 export interface SSEMessage {
+	/** The event name (optional). */
 	event?: string;
+	/** The data payload. */
 	data: string;
+	/** The event ID (optional). */
 	id?: string;
+	/** The reconnection time in ms (optional). */
 	retry?: number;
 }
 
+/**
+ * Creates a Response that streams Server-Sent Events.
+ * @param source - An async iterable or a function returning one.
+ * @param init - Optional ResponseInit.
+ */
 export function sse(
 	source: AsyncIterable<SSEMessage> | (() => AsyncIterable<SSEMessage>),
 	init?: ResponseInit,
@@ -61,6 +78,9 @@ export function sse(
 	});
 }
 
+/**
+ * Handlers for WebSocket lifecycle events.
+ */
 export interface WebSocketHandler {
 	onOpen?: (ws: WebSocket) => void | Promise<void>;
 	onMessage?: (ws: WebSocket, event: MessageEvent) => void | Promise<void>;
@@ -68,6 +88,12 @@ export interface WebSocketHandler {
 	onError?: (ws: WebSocket, event: Event | ErrorEvent) => void | Promise<void>;
 }
 
+/**
+ * Upgrades an incoming HTTP connection to a WebSocket connection.
+ * @param ctx - The request context.
+ * @param handler - The WebSocket event handlers.
+ * @returns The appropriate Response to perform the upgrade.
+ */
 export function upgradeWebSocket(
 	ctx: Context,
 	handler: WebSocketHandler,
@@ -111,6 +137,11 @@ export function upgradeWebSocket(
 	return response;
 }
 
+/**
+ * Creates a streaming Response from an async iterable of data.
+ * @param source - An async iterable of strings or Uint8Arrays.
+ * @param init - Optional ResponseInit.
+ */
 export function stream(
 	source: AsyncIterable<string | Uint8Array> | (() => AsyncIterable<string | Uint8Array>),
 	init?: ResponseInit,

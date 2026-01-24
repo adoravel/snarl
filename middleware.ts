@@ -3,6 +3,11 @@
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
+/**
+ * @module middleware
+ * Provides the `Context` interface, request handling, and built-in middleware.
+ */
+
 import { CookieJar } from "./cookie.ts";
 import {
 	BadRequestError,
@@ -17,72 +22,159 @@ import {
 import { extname, join, resolve } from "@std/path";
 import { encodeHex } from "@std/encoding/hex";
 
+/**
+ * Represents a file uploaded via `multipart/form-data`.
+ */
 export interface UploadedFile {
+	/** The field name in the form. */
 	name: string;
+	/** The filename provided by the client. */
 	filename: string;
+	/** The MIME type provided by the client. */
 	type: string;
+	/** The size of the file in bytes. */
 	size: number;
+	/** The raw file content. */
 	content: Uint8Array;
 }
 
+/**
+ * The Context object represents a single HTTP request/response lifecycle.
+ * It holds request data, response helpers, and middleware state.
+ */
 export interface Context<Params = Record<string, string>> {
+	/** The incoming Request object. */
 	readonly request: Request;
+	/** Deno's connection info (remote address). */
 	readonly sender: Deno.ServeHandlerInfo<Deno.NetAddr>;
+	/** Parameters extracted from the URL path (e.g., `:id`). */
 	readonly params: Params;
+	/** The parsed URL. */
 	readonly url: URL;
+	/** A helper to manage cookies (request and response). */
 	readonly cookies: CookieJar;
+	/** A unique identifier for this request. */
 	readonly requestId: string;
 
+	/** The URL search params object. */
 	readonly query: URLSearchParams;
+	/** Headers for the outgoing response. */
 	readonly headers: Headers;
 
+	/** Gets a specific outgoing header value. */
 	get(name: string): string | null;
+	/** Sets an outgoing header value. */
 	set(name: string, value: string): void;
 
+	/** Internal cache for body parsing. Used by `ctx.body` methods. */
 	bodyCache: unknown;
+	/** Shared state map for middleware. */
 	state: Map<string | symbol, unknown>;
 
+	/**
+	 * Sends a JSON response.
+	 * @param data - The object to serialize.
+	 * @param init - Optional ResponseInit (status, headers).
+	 */
 	json<T>(data: T, init?: ResponseInit): Response;
+	/**
+	 * Sends an HTML response.
+	 * @param content - The HTML string.
+	 * @param init - Optional ResponseInit.
+	 */
 	html(content: string, init?: ResponseInit): Response;
+	/**
+	 * Sends a plain text response.
+	 * @param content - The text string.
+	 * @param init - Optional ResponseInit.
+	 */
 	text(content: string, init?: ResponseInit): Response;
+	/**
+	 * Redirects to a different URL.
+	 * @param url - The URL to redirect to.
+	 * @param status - The HTTP status code (defaults to 302).
+	 */
 	redirect(url: string, status?: number): Response;
 
+	/** Throws a 404 Not Found error. */
 	notFound(message?: string): never;
+	/** Throws a 400 Bad Request error. */
 	badRequest(message?: string): never;
+	/** Throws a 429 Too Many Requests error. */
 	tooManyRequests(message?: string, retryAfter?: string): never;
+	/** Throws a 401 Unauthorized error. */
 	unauthorized(message?: string): never;
+	/** Throws a 403 Forbidden error. */
 	forbidden(message?: string): never;
+	/** Throws a 500 Internal Server Error. */
 	internalError(message?: string): never;
 
+	/** Sends a 201 Created JSON response. */
 	created<T>(data: T, init?: ResponseInit): Response;
+	/** Sends a 204 No Content response. */
 	noContent(): Response;
 
+	/**
+	 * Sends a file from the filesystem.
+	 * Uses `getContentType` to detect MIME type automatically.
+	 * @param path - The relative or absolute path to the file.
+	 * @param init - Optional ResponseInit.
+	 */
 	send(path: string, init?: ResponseInit): Promise<Response>;
 
+	/** Methods for accessing the request body. */
 	body: {
+		/**
+		 * Returns the body as a string.
+		 * If the body was previously parsed as JSON, it returns `JSON.stringify` of the cache.
+		 */
 		plain(): Promise<string>;
+		/**
+		 * Returns the body as a parsed JSON object.
+		 * Uses native `request.json()` for efficiency.
+		 */
 		json<T = any>(): Promise<T>;
 	};
+
+	/** Returns the body as a `FormData` object. */
 	formData(): Promise<FormData>;
 
+	/**
+	 * Parses the body as `multipart/form-data`.
+	 * @returns Fields and files extracted from the request.
+	 */
 	multipart(): Promise<{
 		fields: Record<string, string>;
 		files: Record<string, UploadedFile>;
 	}>;
 }
 
+/**
+ * A route handler function.
+ * @template C - The type of route parameters.
+ */
 export interface Handler<C> {
 	(ctx: Context<C>): Response | Promise<Response> | void | Promise<void>;
 }
 
+/**
+ * A middleware function.
+ * Middleware can modify the Context or modify the Response.
+ */
 export interface Middleware {
 	(ctx: Context, next: () => Promise<Response>): Response | Promise<Response>;
 }
 
+/**
+ * An error handler function for top-level error catching.
+ */
 export interface ErrorHandler {
 	(error: Error, ctx: Context): Response | Promise<Response>;
 }
 
+/**
+ * Composes an array of middleware functions with a final handler.
+ */
 export function compose(middlewares: Middleware[], handler: Handler<any>): Handler<any> {
 	if (!middlewares.length) return handler;
 
@@ -112,7 +204,7 @@ function response(
 
 	arbitraryHeaders.forEach((value, key) => headers.set(key, value));
 
-	for (const setCookie of cookies.getSetCookieHeaders()) {
+	for (const setCookie of cookies.headers) {
 		headers.append("Set-Cookie", setCookie);
 	}
 
@@ -122,7 +214,7 @@ function response(
 	});
 }
 
-export function getContentType(ext: string): string | undefined {
+function getContentType(ext: string): string | undefined {
 	const contentTypes: Record<string, string> = {
 		".html": "text/html; charset=utf-8",
 		".css": "text/css; charset=utf-8",
@@ -147,6 +239,9 @@ export function getContentType(ext: string): string | undefined {
 	return contentTypes[ext];
 }
 
+/**
+ * Creates a new Context object.
+ */
 export function createContext<P>(
 	request: Request,
 	sender: Deno.ServeHandlerInfo<Deno.NetAddr>,
@@ -267,19 +362,9 @@ export function createContext<P>(
 	return context;
 }
 
-export function requestId(): Middleware {
-	return async (ctx, next) => {
-		const response = await next();
-		const headers = new Headers(response.headers);
-		headers.set("X-Request-ID", ctx.requestId);
-		return new Response(response.body, {
-			status: response.status,
-			statusText: response.statusText,
-			headers,
-		});
-	};
-}
-
+/**
+ * Middleware that logs HTTP request details (method, path, status, latency).
+ */
 export function logger(options: {
 	format?: (ctx: Context, ms: number, status: number) => string;
 } = {}): Middleware {
@@ -300,6 +385,9 @@ export function logger(options: {
 	};
 }
 
+/**
+ * Middleware to handle Cross-Origin Resource Sharing (CORS).
+ */
 export function cors(options: {
 	origin?: string | string[];
 	methods?: string[];
@@ -355,6 +443,10 @@ async function hashFile(message: Uint8Array<ArrayBuffer>): Promise<string> {
 	return encodeHex(buf);
 }
 
+/**
+ * Serves static files from a directory.
+ * Handles ETag caching, Range requests, and prevents directory traversal.
+ */
 export function staticFiles(root: string, options: {
 	maxAge?: number;
 	immutable?: boolean;
@@ -435,6 +527,10 @@ export function staticFiles(root: string, options: {
 	};
 }
 
+/**
+ * Rate limiter middleware.
+ * Returns an object with a `cleanup` method to clear the internal timer.
+ */
 export function rateLimit(options: {
 	windowMs: number;
 	max: number;
@@ -480,6 +576,9 @@ export function rateLimit(options: {
 	});
 }
 
+/**
+ * Middleware that adds security headers to the response.
+ */
 export function securityHeaders(options: {
 	contentSecurityPolicy?: string;
 	strictTransportSecurity?: string;
@@ -563,6 +662,9 @@ export function securityHeaders(options: {
 	};
 }
 
+/**
+ * Middleware that parses `application/json` bodies.
+ */
 export function jsonParser(): Middleware {
 	return async (ctx, next) => {
 		const contentType = ctx.request.headers.get("Content-Type");
@@ -574,11 +676,13 @@ export function jsonParser(): Middleware {
 				return ctx.badRequest("Malformed JSON input");
 			}
 		}
-
 		return next();
 	};
 }
 
+/**
+ * Middleware that parses `application/x-www-form-urlencoded` bodies.
+ */
 export function formParser(): Middleware {
 	return async (ctx, next) => {
 		const contentType = ctx.request.headers.get("Content-Type");
