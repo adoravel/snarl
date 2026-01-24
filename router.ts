@@ -138,33 +138,45 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRo
 			const requestId = request.headers.get("X-Request-ID") || crypto.randomUUID();
 
 			try {
-				for (const route of routes[method]) {
-					const match = route.pattern.exec(request.url);
-					if (!match) continue;
+				let route: Route<any> | undefined;
+				let params: Record<string, string> = {};
 
-					const ctx = createContext(
-						request,
-						info,
-						(match.pathname.groups || {}) as any,
-						requestId,
-					);
-
-					try {
-						const result = await compose(middlewares, route.handler)(ctx);
-						return result || new Response("", { status: 200 });
-					} catch (err) {
-						if (err instanceof HttpError) {
-							return ctx.json(
-								{ error: err.message },
-								{ status: err.status, headers: err.headers },
-							);
-						}
-						throw err;
+				for (const r of routes[method]) {
+					const match = r.pattern.exec(request.url);
+					if (match) {
+						route = r, params = (match.pathname.groups || {}) as any;
+						break;
 					}
 				}
 
-				return await config.onNotFound(createContext(request, info, {} as any)) ??
-					new Response("Not Found", { status: 404 });
+				const handle: Handler<any> = async (ctx) => {
+					if (route) {
+						const result = await route.handler(ctx);
+						return result || new Response("", { status: 200 });
+					}
+					return await config.onNotFound(ctx) ??
+						new Response("Not Found", { status: 404 });
+				};
+
+				const ctx = createContext(
+					request,
+					info,
+					params,
+					requestId,
+				);
+
+				try {
+					const result = await compose(middlewares, handle)(ctx);
+					return result || new Response("", { status: 200 });
+				} catch (err) {
+					if (err instanceof HttpError) {
+						return ctx.json(
+							{ error: err.message },
+							{ status: err.status, headers: err.headers },
+						);
+					}
+					throw err;
+				}
 			} catch (e) {
 				return await config.onError(e as Error, createContext(request, info, {} as any));
 			}

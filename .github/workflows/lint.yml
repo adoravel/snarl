@@ -19,6 +19,6 @@ jobs:
       - name: run linter
         run: deno lint
       - name: run tests
-        run: deno test --allow-net
+        run: deno test --allow-net --allow-write --allow-read
       - name: type check
         run: deno check
