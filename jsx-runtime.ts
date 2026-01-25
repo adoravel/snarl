@@ -87,6 +87,13 @@ export function jsxTemplate(template: string[], ...values: unknown[]): string {
 	return html;
 }
 
+/**
+ * jsx factory function
+ * @template P compoonent properties parameter
+ * @param tag the element tag type (e.g., `div`, `span`, or a Component function)
+ * @param props the attributes and children of the element
+ * @returns either the rendered html string or a `Promise` resolving to one
+ */
 export function jsx<P extends Props = Props>(
 	tag: string | Component<P> | typeof Fragment,
 	props: P | null = {} as P,
@@ -117,4 +124,54 @@ export function jsx<P extends Props = Props>(
 		html += `</${tag}>`;
 	}
 	return html;
+}
+
+type CSSProperties =
+	& {
+		[K in keyof CSSStyleDeclaration]?: CSSStyleDeclaration[K] extends string ? string | number
+			: never;
+	}
+	& {
+		[key: `--${string}`]: string | number;
+		[key: `-webkit-${string}`]: string | number;
+		[key: `-moz-${string}`]: string | number;
+		[key: `-ms-${string}`]: string | number;
+	};
+
+type HTMLAttributeMap<T = HTMLElement> = Partial<
+	Omit<T, keyof Element | "children" | "style" | "href"> & {
+		style?: string | CSSProperties;
+		class?: string;
+		dangerouslySetInnerHTML?: { __html: string };
+		children?: any;
+		href: string | SVGAnimatedString;
+		[key: `data-${string}`]: string | number | boolean | null | undefined;
+		[key: `aria-${string}`]: string | number | boolean | null | undefined;
+		[key: `on${string}`]: string | ((e: Event) => void);
+	}
+>;
+
+export declare namespace JSX {
+	/** defines valid JSX elements */
+	export type ElementType =
+		| keyof IntrinsicElements
+		| Component<any>;
+
+	export interface ElementChildrenAttribute {
+		// deno-lint-ignore ban-types
+		children: {};
+	}
+
+	/** type definitions for intrinsic HTML and SVG elements */
+	export type IntrinsicElements =
+		& {
+			[K in keyof HTMLElementTagNameMap]: HTMLAttributeMap<
+				HTMLElementTagNameMap[K]
+			>;
+		}
+		& {
+			[K in keyof SVGElementTagNameMap]: HTMLAttributeMap<
+				SVGElementTagNameMap[K]
+			>;
+		};
 }

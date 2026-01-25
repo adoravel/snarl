@@ -5,8 +5,8 @@
 	"license": "LGPL-3.0-or-later",
 	"exports": {
 		".": "./mod.ts",
-		"./jsx-runtime": "./jsx.ts",
-		"./jsx-dev-runtime": "./jsx.ts"
+		"./jsx-runtime": "./jsx-runtime.ts",
+		"./jsx-dev-runtime": "./jsx-runtime.ts"
 	},
 	"tasks": {
 		"dev": "deno run --allow-net --watch src/main.tsx"
@@ -14,7 +14,6 @@
 	"imports": {
 		"@std/encoding": "jsr:@std/encoding@^1.0.10",
 		"@std/path": "jsr:@std/path@^1.1.4",
-		"@july/snarl/jsx-runtime": "./jsx.ts",
 		"@std/http": "jsr:@std/http@^1.0.23"
 	},
 	"fmt": {
