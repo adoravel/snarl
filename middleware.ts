@@ -196,8 +196,8 @@ export interface Handler<C> {
  * a middleware function
  * `Middleware` can modify the `Context` or modify the `Response`
  * @example <caption>short-circuit / authentication middleware</caption>
- * // check for a token in the headers before allowing access
  * ```ts
+ * // check for a token in the headers before allowing access
  * const auth: Middleware = async (ctx, next) => {
  *   const token = ctx.request.headers.get("Authorization");
  *   if (!token) {
@@ -207,6 +207,7 @@ export interface Handler<C> {
  *   // middleware or route handler
  *   await next();
  * };
+ * app.use(auth);
  * ```
  *
  * @example <caption>deny requests based on method or path</caption>
@@ -217,6 +218,7 @@ export interface Handler<C> {
  *   }
  *   await next();
  * };
+ * app.use(auth);
  * ```
  *
  * @example <caption>logging middleware</caption>
@@ -227,14 +229,16 @@ export interface Handler<C> {
  *   const duration = performance.now() - start;
  *   console.log(`${ctx.request.method} ${ctx.url.pathname} - ${duration}ms`);
  * };
+ * app.use(auth);
  * ```
  *
  * @example <caption>custom headers</caption>
- * ``ts
+ * ```ts
  * const headersMiddleware: Middleware = async (ctx, next) => {
  *   const response = await next();
  *   return response.headers.set("X-Powered-By", "snarl"), response;
  * };
+ * app.use(auth);
  * ```
  */
 export interface Middleware {

@@ -11,6 +11,7 @@ a minimal web framework for deno
 - [x] middleware composition
 - [x] sse and websocket support
 - [x] static file serving with etag and range support
+- [ ] type-safe data validation
 - [ ] reactivity and signals
 
 ## quick start
