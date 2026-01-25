@@ -6,7 +6,7 @@
 import { assertEquals, assertExists } from "jsr:@std/assert@1.0.17";
 import { CookieJar, serializeCookie } from "./cookie.ts";
 import { createRouter } from "./router.ts";
-import { jsonParser, rateLimit, staticFiles } from "./middleware.ts";
+import { formParser, jsonParser, rateLimit, staticFiles } from "./middleware.ts";
 import { NotFoundError, TooManyRequestsError } from "./utils.ts";
 
 const mockInfo = { remoteAddr: { hostname: "127.0.0.1" } } as Deno.ServeHandlerInfo<Deno.NetAddr>;
@@ -218,4 +218,33 @@ Deno.test("static files", async (t) => {
 	});
 
 	await Deno.remove(root, { recursive: true });
+});
+
+Deno.test("formParser", async (t) => {
+	await t.step("parses form data and caches it", async () => {
+		const router = createRouter();
+		router.use(formParser());
+
+		router.post("/submit", async (ctx) => {
+			const body = await ctx.body.json();
+
+			if (typeof body === "object") {
+				return ctx.json({ received: body });
+			} else {
+				return ctx.json({ status: "invalid bruh" });
+			}
+		});
+
+		const req = new Request("http://localhost/submit", {
+			method: "POST",
+			headers: { "Content-Type": "application/x-www-form-urlencoded" },
+			body: "meow=mrrp&myage=13",
+		});
+
+		const res = await router.fetch(req, mockInfo);
+		assertEquals(res.status, 200);
+
+		const json = await res.json();
+		assertEquals(json.received, { meow: "mrrp", myage: "13" });
+	});
 });
