@@ -4,9 +4,9 @@
 	"version": "0.2.4",
 	"license": "LGPL-3.0-or-later",
 	"exports": {
-		".": "./mod.ts",
-		"./jsx-runtime": "./jsx-runtime.ts",
-		"./jsx-dev-runtime": "./jsx-runtime.ts"
+		".": "./src/mod.ts",
+		"./jsx-runtime": "./src/jsx-runtime.ts",
+		"./jsx-dev-runtime": "./src/jsx-runtime.ts"
 	},
 	"tasks": {
 		"dev": "deno run --allow-net --watch src/main.tsx"
