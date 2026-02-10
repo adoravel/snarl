@@ -79,6 +79,35 @@ Deno.test("basic routing", async (t) => {
 		assertEquals(routes[0].method, "GET");
 		assertEquals(routes[1].method, "POST");
 	});
+
+	await t.step("decodes route params properly", async () => {
+		const router = createRouter();
+
+		router.get("/bleh/:name/:artist", (ctx) => {
+			return ctx.json({
+				name: ctx.params.name,
+				artist: ctx.params.artist,
+			});
+		});
+
+		const url = "http://localhost/bleh/Song%20Name/Artist%20%26%20Band";
+		const res = await router.fetch(new Request(url), mockInfo);
+
+		assertEquals(res.status, 200);
+
+		const body = await res.json();
+		assertEquals(body.name, "Song Name");
+		assertEquals(body.artist, "Artist & Band");
+	});
+
+	await t.step("handles non-encoded params correctly", async () => {
+		const router = createRouter();
+		router.get("/user/:id", (ctx) => ctx.json({ id: ctx.params.id }));
+
+		const res = await router.fetch(new Request("http://localhost/user/123"), mockInfo);
+		const body = await res.json();
+		assertEquals(body.id, "123");
+	});
 });
 
 Deno.test("context", async (t) => {

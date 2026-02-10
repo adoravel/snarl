@@ -164,6 +164,13 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRo
 					const match = r.pattern.exec(request.url);
 					if (match) {
 						route = r, params = (match.pathname.groups || {}) as any;
+						for (const [key, value] of Object.entries(params)) {
+							try {
+								params[key] = decodeURIComponent(value);
+							} catch (_e) {
+								// no-op
+							}
+						}
 						break;
 					}
 				}
