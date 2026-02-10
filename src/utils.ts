@@ -52,6 +52,10 @@ export function url<const S extends string>(
 	return (((pattern as any).raw = init.pathname), pattern);
 }
 
+export type ReplaceReturnType<F extends (...args: any[]) => any, T> = (
+	...args: Parameters<F>
+) => T;
+
 /**
  * a base error class for all HTTP errors.
  * throwing this inside a handler will be caught and converted to a JSON response

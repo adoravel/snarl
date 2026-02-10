@@ -9,7 +9,7 @@
  */
 
 import { compose, createContext, ErrorHandler, Handler, Middleware } from "./middleware.ts";
-import { HttpError, httpMethods, Method, ParametersOf, PreciseURLPattern } from "./utils.ts";
+import { HttpError, httpMethods, Method, ParametersOf, PreciseURLPattern, ReplaceReturnType } from "./utils.ts";
 
 export interface Route<P extends string> {
 	readonly pattern: PreciseURLPattern<P>;
@@ -37,7 +37,7 @@ type Params<P> = P extends PreciseURLPattern<any> ? ParametersOf<P["raw"]>
 interface RouterConfig {
 	prefix?: string;
 	onError: ErrorHandler;
-	onNotFound: Handler<Record<PropertyKey, never>>;
+	onNotFound: ReplaceReturnType<Handler<Record<PropertyKey, never>>, Response | Promise<Response>>;
 }
 
 interface Router {
@@ -82,6 +82,26 @@ type ExtendedRouter =
 			metadata?: RouteMetadata,
 		) => Router;
 	};
+
+function findRoute(routes: Route<any>[], url: string): { route: Route<any>; params: Record<string, string> } | null {
+	for (const route of routes) {
+		const match = route.pattern.exec(url);
+		if (match) {
+			const params = (match.pathname.groups || {}) as Record<string, string>;
+
+			for (const [key, value] of Object.entries(params)) {
+				try {
+					params[key] = decodeURIComponent(value);
+				} catch (_e) {
+					// no-op
+				}
+			}
+
+			return { route, params };
+		}
+	}
+	return null;
+}
 
 /**
  * creates a new `Router` instance
@@ -135,7 +155,8 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRo
 			configure(groupRouter);
 
 			for (const m of httpMethods) {
-				routes[m].push(...groupRouter.routes[m]);
+				const groupRoutes = groupRouter.routes[m] ?? [];
+				routes[m].push(...groupRoutes);
 			}
 			return r as ExtendedRouter;
 		},
@@ -157,37 +178,20 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRo
 			}
 
 			try {
-				let route: Route<any> | undefined;
-				let params: Record<string, string> = {};
-
-				for (const r of routes[method]) {
-					const match = r.pattern.exec(request.url);
-					if (match) {
-						route = r, params = (match.pathname.groups || {}) as any;
-						for (const [key, value] of Object.entries(params)) {
-							try {
-								params[key] = decodeURIComponent(value);
-							} catch (_e) {
-								// no-op
-							}
-						}
-						break;
-					}
-				}
+				const match = findRoute(routes[method], request.url);
 
 				const handle: Handler<any> = async (ctx) => {
-					if (route) {
-						const result = await route.handler(ctx);
+					if (match) {
+						const result = await match.route.handler(ctx);
 						return result || new Response("", { status: 200 });
 					}
-					return await config.onNotFound(ctx) ??
-						new Response("Not Found", { status: 404 });
+					return await config.onNotFound(ctx);
 				};
 
 				const ctx = createContext(
 					request,
 					info,
-					params,
+					match?.params,
 					requestId,
 				);
 
@@ -211,7 +215,8 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRo
 					throw err;
 				}
 			} catch (e) {
-				return await config.onError(e as Error, createContext(request, info, {} as any));
+				const ctx = createContext(request, info, {} as any);
+				return await config.onError(e as Error, ctx);
 			}
 		},
 	};
