@@ -686,6 +686,70 @@ export function staticFiles(root: string, options: {
 }
 
 /**
+ * Defines a storage backend for rate limiting data.
+ * Allows swapping the default in-memory `Map` for Redis, SQL database, etc.
+ */
+export interface RateLimitStore {
+	/**
+	 * retrieves the current count and reset time for a key
+	 */
+
+	get(key: string): Promise<{ count: number; reset: number } | undefined>;
+	/**
+	 * sets the count and reset time for a key
+	 */
+	set(key: string, value: { count: number; reset: number }): Promise<void>;
+}
+
+/**
+ * in-memory implementation of `RateLimitStore`
+ */
+class MemoryStore implements RateLimitStore {
+	private requests = new Map<string, { count: number; reset: number }>();
+	private timer: ReturnType<typeof setTimeout> | null = null;
+
+	constructor(private windowMs: number) {}
+
+	get(key: string): Promise<{ count: number; reset: number } | undefined> {
+		return Promise.resolve(this.requests.get(key));
+	}
+
+	set(key: string, value: { count: number; reset: number }): Promise<void> {
+		this.requests.set(key, value);
+		return Promise.resolve(this.scheduleCleanup());
+	}
+
+	public cleanup(): void {
+		if (this.timer) {
+			clearTimeout(this.timer);
+			this.timer = null;
+		}
+	}
+
+	private scheduleCleanup() {
+		if (this.timer) return;
+
+		this.timer = setTimeout(() => {
+			const now = Date.now();
+			let hasActiveKeys = false;
+
+			for (const [key, data] of this.requests.entries()) {
+				if (now > data.reset) {
+					this.requests.delete(key);
+				} else {
+					hasActiveKeys = true;
+				}
+			}
+
+			this.timer = null;
+			if (hasActiveKeys) {
+				this.scheduleCleanup();
+			}
+		}, this.windowMs);
+	}
+}
+
+/**
  * Rate limiter middleware.
  * Returns an object with a `cleanup` method to clear the internal timer.
  *
@@ -703,44 +767,43 @@ export function rateLimit(options: {
 	max: number;
 	keygen?: (ctx: Context) => string;
 	handler?: Handler<any>;
-}): Middleware & { cleanup: () => void } {
+	store?: RateLimitStore;
+}): Middleware {
 	const {
 		windowMs,
 		max,
 		keygen = (ctx) => ctx.sender.remoteAddr.hostname,
 		handler,
+		store = new MemoryStore(options.windowMs),
 	} = options;
-
-	const requests = new Map<string, { count: number; reset: number }>();
-	const id = setInterval(() => {
-		const now = Date.now();
-		for (const [key, data] of requests.entries()) {
-			if (now > data.reset) requests.delete(key);
-		}
-	}, windowMs);
 
 	const middleware = async (ctx: Context, next: () => Promise<Response>) => {
 		const key = keygen(ctx);
 		const now = Date.now();
 
-		let data = requests.get(key);
+		const data = await store.get(key);
 
-		if (!data || now > data.reset) {
-			data = { count: 0, reset: now + windowMs };
-			requests.set(key, data);
+		let count = 1;
+		let reset = now + windowMs;
+
+		if (data && now <= data.reset) {
+			count = data.count + 1;
+			reset = data.reset;
 		}
 
-		if (++data.count > max) {
-			const retryAfter = Math.ceil((data.reset - now) / 1000).toString();
+		await store.set(key, { count, reset });
+
+		if (count > max) {
+			const retryAfter = Math.ceil((reset - now) / 1000).toString();
 			return await handler?.(ctx) ?? ctx.tooManyRequests(undefined, retryAfter);
 		}
 		return next();
 	};
 
-	return Object.assign(middleware, {
-		cleanup: () => clearInterval(id),
-		[Symbol.dispose]: () => clearInterval(id),
-	});
+	if (store instanceof MemoryStore) {
+		(middleware as any).cleanup = () => store.cleanup();
+	}
+	return middleware;
 }
 
 /**

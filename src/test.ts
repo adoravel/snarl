@@ -194,7 +194,8 @@ Deno.test("rate limiting", async (t) => {
 		const res3 = await router.fetch(new Request("http://localhost/hai"), mockInfo);
 		assertEquals(res3.status, 429);
 
-		limiter.cleanup();
+		// test-suite constraint
+		(limiter as any).cleanup();
 	});
 });
 
