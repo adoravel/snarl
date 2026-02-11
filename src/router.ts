@@ -81,6 +81,16 @@ type ExtendedRouter =
 			handler: Handler<Params<P>>,
 			metadata?: RouteMetadata,
 		) => Router;
+	}
+	& {
+		/**
+		 * registers a handler for all supported HTTP methods.
+		 */
+		all<P extends string | PreciseURLPattern<any> | URLPattern>(
+			path: P,
+			handler: Handler<Params<P>>,
+			metadata?: RouteMetadata,
+		): Router;
 	};
 
 function findRoute(routes: Route<any>[], url: string): { route: Route<any>; params: Record<string, string> } | null {
@@ -128,7 +138,7 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRo
 			{ status: 404 },
 		);
 
-	const r: Router = {
+	const r: Partial<ExtendedRouter> = {
 		routes,
 		middlewares,
 		config,
@@ -145,6 +155,16 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRo
 				handler: handler as any,
 				metadata,
 			});
+			return r as ExtendedRouter;
+		},
+		all<P extends string | PreciseURLPattern<any> | URLPattern>(
+			path: P,
+			handler: Handler<Params<P>>,
+			metadata?: RouteMetadata,
+		) {
+			for (const method of httpMethods) {
+				r.on!(method, path, handler, metadata);
+			}
 			return r as ExtendedRouter;
 		},
 		group(prefix, configure) {
@@ -234,7 +254,7 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRo
 				path: P,
 				handler: Handler<Params<P>>,
 				metadata?: RouteMetadata,
-			) => r.on(method as Method, path, handler, metadata);
+			) => r.on!(method as Method, path, handler, metadata);
 		},
 	);
 	return r as ExtendedRouter;
