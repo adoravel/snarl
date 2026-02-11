@@ -182,6 +182,25 @@ export interface Context<Params = Record<string, string>> {
 		fields: Record<string, string>;
 		files: Record<string, UploadedFile>;
 	}>;
+
+	/**
+	 * checks whether the incoming request's `Content-Type` header matches the given MIME type(s).
+	 *
+	 * @template T the string literal type of the MIME type
+	 *
+	 * @example
+	 * ```ts
+	 * if (ctx.is("application/json")) {
+	 *   // the type system knows the header is strictly "application/json" here
+	 *   const data = await ctx.body.json();
+	 * }
+	 * ```
+	 */
+	is<T extends string>(type: T | T[]): this is Context & {
+		request: Request & {
+			headers: Headers & { get(name: "content-type"): T };
+		};
+	};
 }
 
 /**
@@ -455,6 +474,21 @@ export function createContext<P>(
 			}
 
 			return { fields, files };
+		},
+		is<T extends string>(
+			type: T | T[],
+		): this is Context & {
+			request: Request & {
+				headers: Headers & { get(name: "content-type"): T };
+			};
+		} {
+			const kind = this.request.headers.get("Content-Type");
+			if (!kind) return false;
+
+			if (Array.isArray(type)) {
+				return type.some((t) => kind.includes(t));
+			}
+			return kind.includes(type);
 		},
 	};
 	return context;
@@ -803,9 +837,7 @@ export function securityHeaders(options: {
  */
 export function jsonParser(): Middleware {
 	return async (ctx, next) => {
-		const contentType = ctx.request.headers.get("Content-Type");
-
-		if (contentType?.includes("application/json")) {
+		if (ctx.is("application/json")) {
 			try {
 				ctx.bodyCache = await ctx.body.json();
 			} catch (_e) {
@@ -830,9 +862,7 @@ export function jsonParser(): Middleware {
  */
 export function formParser(): Middleware {
 	return async (ctx, next) => {
-		const contentType = ctx.request.headers.get("Content-Type");
-
-		if (contentType?.includes("application/x-www-form-urlencoded")) {
+		if (ctx.is("application/x-www-form-urlencoded")) {
 			try {
 				const formData = await ctx.formData();
 				const data: Record<string, string> = {};
