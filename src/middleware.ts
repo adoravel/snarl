@@ -72,7 +72,7 @@ export interface Context<Params = Record<string, string>> {
 	/** gets a specific outgoing header value */
 	get(name: string): string | null;
 	/** sets an outgoing header value */
-	set(name: string, value: string): void;
+	set(name: string, value: string): this;
 
 	/** internal cache for body parsing */
 	bodyCache: unknown;
@@ -383,8 +383,9 @@ export function createContext<P>(
 		get(name: string): string | null {
 			return headers.get(name);
 		},
-		set(name: string, value: string): void {
+		set(name: string, value: string): typeof context {
 			headers.set(name, value);
+			return context;
 		},
 		json(data, init) {
 			return response(JSON.stringify(data), "application/json", cookies, headers, init);
