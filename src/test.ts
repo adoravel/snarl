@@ -277,3 +277,74 @@ Deno.test("formParser", async (t) => {
 		assertEquals(json.received, { meow: "mrrp", myage: "13" });
 	});
 });
+
+Deno.test("static files dotfiles security", async (t) => {
+	const root = await Deno.makeTempDir({ prefix: "snarl-dotfiles-or-smth-" });
+
+	await Deno.writeTextFile(`${root}/visible.txt`, "I am very visible");
+	await Deno.writeTextFile(`${root}/.env`, "SECRET_KEY=123");
+
+	await Deno.mkdir(`${root}/.git`);
+	await Deno.writeTextFile(`${root}/.git/config`, "[core]\nrepositoryformatversion = 0");
+
+	await t.step("default mode (ignore) returns 404 for hidden files", async () => {
+		const router = createRouter();
+		router.use(staticFiles(root));
+
+		const res = await router.fetch(new Request("http://localhost/.env"), mockInfo);
+		assertEquals(res.status, 404);
+	});
+
+	await t.step("default mode (ignore) returns 404 for files inside hidden directories", async () => {
+		const router = createRouter();
+		router.use(staticFiles(root));
+
+		const res = await router.fetch(new Request("http://localhost/.git/config"), mockInfo);
+		assertEquals(res.status, 404);
+	});
+
+	await t.step("default mode (ignore) serves visible files normally", async () => {
+		const router = createRouter();
+		router.use(staticFiles(root));
+
+		const res = await router.fetch(new Request("http://localhost/visible.txt"), mockInfo);
+		assertEquals(res.status, 200);
+		assertEquals(await res.text(), "I am very visible");
+	});
+
+	await t.step("deny mode returns 403 for hidden files", async () => {
+		const router = createRouter();
+		router.use(staticFiles(root, { dotfiles: "deny" }));
+
+		const res = await router.fetch(new Request("http://localhost/.env"), mockInfo);
+		assertEquals(res.status, 403);
+	});
+
+	await t.step("deny mode returns 403 for files inside hidden directories", async () => {
+		const router = createRouter();
+		router.use(staticFiles(root, { dotfiles: "deny" }));
+
+		const res = await router.fetch(new Request("http://localhost/.git/config"), mockInfo);
+		assertEquals(res.status, 403);
+	});
+
+	await t.step("allow mode serves hidden files successfully", async () => {
+		const router = createRouter();
+		router.use(staticFiles(root, { dotfiles: "allow" }));
+
+		const res = await router.fetch(new Request("http://localhost/.env"), mockInfo);
+		assertEquals(res.status, 200);
+		assertEquals(await res.text(), "SECRET_KEY=123");
+	});
+
+	await t.step("allow mode serves files inside hidden directories", async () => {
+		const router = createRouter();
+		router.use(staticFiles(root, { dotfiles: "allow" }));
+
+		const res = await router.fetch(new Request("http://localhost/.git/config"), mockInfo);
+		assertEquals(res.status, 200);
+		assertEquals(await res.text(), "[core]\nrepositoryformatversion = 0");
+	});
+
+	await Deno.remove(root, { recursive: true });
+});

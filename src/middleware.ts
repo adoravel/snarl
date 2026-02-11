@@ -19,7 +19,7 @@ import {
 	TooManyRequestsError,
 	UnauthorizedError,
 } from "./utils.ts";
-import { extname, join, resolve } from "@std/path";
+import { extname, join, relative, resolve } from "@std/path";
 import { encodeHex } from "@std/encoding/hex";
 
 /**
@@ -590,7 +590,7 @@ async function hashFile(message: Uint8Array<ArrayBuffer>): Promise<string> {
  *
  * @example
  * ```ts
- * app.use(staticFiles("public", { immutable: true, etag: false }));
+ * app.use(staticFiles("public", { immutable: true, etag: false, dotfiles: "deny" }));
  * ```
  */
 export function staticFiles(root: string, options: {
@@ -598,8 +598,9 @@ export function staticFiles(root: string, options: {
 	immutable?: boolean;
 	index?: string;
 	etag?: boolean;
+	dotfiles?: "allow" | "ignore" | "deny";
 } = {}): Middleware {
-	const { maxAge = 0, immutable = false, index = "index.html", etag = true } = options;
+	const { maxAge = 0, immutable = false, index = "index.html", etag = true, dotfiles = "ignore" } = options;
 	root = resolve(Deno.cwd(), root);
 
 	return async (ctx, next) => {
@@ -609,8 +610,19 @@ export function staticFiles(root: string, options: {
 
 		const decodedPath = decodeURIComponent(ctx.url.pathname);
 		let filepath = resolve(root, decodedPath.slice(1));
+
 		if (!filepath.startsWith(root)) {
 			return next();
+		}
+
+		const relativePath = relative(root, filepath);
+		if (relativePath !== "." && /(^|\/|\\)\./.test(relativePath)) {
+			if (dotfiles === "deny") {
+				return new Response("Forbidden", { status: 403 });
+			}
+			if (dotfiles === "ignore") {
+				return next();
+			}
 		}
 
 		try {
