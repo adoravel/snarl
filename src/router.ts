@@ -177,6 +177,7 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRo
 				method = "GET";
 			}
 
+			let ctx: ReturnType<typeof createContext<any>>;
 			try {
 				const match = findRoute(routes[method], request.url);
 
@@ -188,7 +189,7 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRo
 					return await config.onNotFound(ctx);
 				};
 
-				const ctx = createContext(
+				ctx = createContext(
 					request,
 					info,
 					match?.params,
@@ -215,7 +216,7 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRo
 					throw err;
 				}
 			} catch (e) {
-				const ctx = createContext(request, info, {} as any);
+				ctx ??= createContext(request, info, {} as any, requestId);
 				return await config.onError(e as Error, ctx);
 			}
 		},
