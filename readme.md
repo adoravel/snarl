@@ -4,15 +4,15 @@ a minimal web framework for deno
 
 ## features
 
-- [x] lightweight and minimal
-- [x] built-in jsx/tsx rendering
-- [x] flexible type-safe routing with path parameters
-- [x] type-safe request/response handling
-- [x] middleware composition
-- [x] sse and websocket support
-- [x] static file serving with etag and range support
-- [ ] type-safe data validation
-- [ ] reactivity and signals
+- tiny core, zero runtime bloat; built entirely on top of deno's stdlib
+- flexible type-safe routing with first-class support for path parameters, route groups, and wildcard methods
+- chainable context helpers and type-safe request/response handling
+- composable middleware stack with built-in support for CORS, logging, security headers, rate limiting
+- robust file serving featuring ETag caching, `Range` requests, and security options (e.g. dotfile protection)
+- native SSE and WebSockets support
+- built-in precompiled jsx/tsx renderer
+- multipart file uploads and automatic body parsing
+- global error handling and cookie jar management
 
 ## quick start
 
