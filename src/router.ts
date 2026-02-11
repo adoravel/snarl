@@ -155,8 +155,13 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRo
 			configure(groupRouter);
 
 			for (const m of httpMethods) {
-				const groupRoutes = groupRouter.routes[m] ?? [];
-				routes[m].push(...groupRoutes);
+				for (const route of groupRouter.routes[m] ?? []) {
+					if (groupRouter.middlewares.length) {
+						const originalHandler = route.handler;
+						route.handler = compose([...groupRouter.middlewares], originalHandler) as any;
+					}
+					routes[m].push(route);
+				}
 			}
 			return r as ExtendedRouter;
 		},
