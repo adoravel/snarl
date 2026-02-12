@@ -272,6 +272,8 @@ function createTrieRoot(): TrieNode {
 	};
 }
 
+const EMPTY_200 = new Response(null, { status: 200 });
+
 /**
  * creates a new `Router` instance
  * @param baseConfig optional configuration for the router
@@ -382,49 +384,40 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRo
 				method = "GET";
 			}
 
-			let ctx: Context<any>;
+			let ctx: Context<any> | null = null;
 			const url = new URL(request.url);
 			try {
 				const match = matchRoute(tries[method], url.pathname);
-
-				const handle: Handler<any> = async (ctx) => {
-					if (match) {
-						const result = await match.route.handler(ctx);
-						return result || new Response("", { status: 200 });
-					}
-					return await config.onNotFound(ctx);
-				};
 
 				ctx = new Context(
 					request,
 					url,
 					info,
-					match?.params,
+					match?.params ?? {},
 					requestId,
 				);
 
-				try {
-					const response = await compose(middlewares, handle)(ctx);
-					if (request.method.toUpperCase() === "HEAD" && response?.body) {
-						return new Response(null, {
-							status: response.status,
-							statusText: response.statusText,
-							headers: response.headers,
-						});
-					}
-					return response || new Response("", { status: 200 });
-				} catch (err) {
-					if (err instanceof HttpError) {
-						return ctx.json(
-							{ error: err.message },
-							{ status: err.status, headers: err.headers },
-						);
-					}
-					throw err;
+				const response = !middlewares.length
+					? (match ? await match.route.handler(ctx) : await config.onNotFound(ctx))
+					: await compose(middlewares, match ? match.route.handler : config.onNotFound)(ctx);
+
+				if (method === "HEAD" && response?.body) {
+					return new Response(null, {
+						status: response.status,
+						statusText: response.statusText,
+						headers: response.headers,
+					});
 				}
-			} catch (e) {
+				return response ?? EMPTY_200;
+			} catch (err) {
 				ctx ??= new Context(request, url, info, {} as any, requestId);
-				return await config.onError(e as Error, ctx);
+				if (err instanceof HttpError) {
+					return ctx.json(
+						{ error: err.message },
+						{ status: err.status, headers: err.headers },
+					);
+				}
+				return await config.onError(err as Error, ctx);
 			}
 		},
 	};
