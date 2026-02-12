@@ -364,7 +364,7 @@ export function createContext<P>(
 	params: P,
 	requestId?: string,
 ): Context<P> {
-	let _url: URL | null = null;
+	const url = new URL(request.url);
 	let _cookies: CookieJar | null = null;
 	let _state: Map<string | symbol, unknown> | null = null;
 	let _headers: Headers | null = null;
@@ -374,11 +374,9 @@ export function createContext<P>(
 		sender,
 		params,
 		bodyCache: undefined,
+		url,
 		get requestId() {
 			return requestId || crypto.randomUUID();
-		},
-		get url() {
-			return _url ??= new URL(this.request.url);
 		},
 		get headers() {
 			return _headers ??= new Headers();
