@@ -16,14 +16,14 @@ a minimal web framework for deno
 
 ### performance comparison
 
-frameworks were benchmarked using `autocannon`. `snarl 0.2.6` is set as baseline (`1x`).
+frameworks were benchmarked using `autocannon`. `snarl 0.3.0` is set as baseline (`1x`).
 
-| Scenario         |                 hono                  |                snarl                 |                 oak                  |               express                |
-| :--------------- | :-----------------------------------: | :----------------------------------: | :----------------------------------: | :----------------------------------: |
-| **plain text**   | 1.93x<br><small>113,293 req/s</small> | 1.00x<br><small>58,838 req/s</small> | 0.81x<br><small>47,878 req/s</small> | 0.48x<br><small>28,093 req/s</small> |
-| **JSON**         | 1.48x<br><small>84,166 req/s</small>  | 1.00x<br><small>56,752 req/s</small> | 0.83x<br><small>47,187 req/s</small> | 0.48x<br><small>27,285 req/s</small> |
-| **path params**  | 1.49x<br><small>78,150 req/s</small>  | 1.00x<br><small>52,355 req/s</small> | 0.86x<br><small>44,922 req/s</small> | 0.51x<br><small>26,520 req/s</small> |
-| **query params** | 1.61x<br><small>81,325 req/s</small>  | 1.00x<br><small>50,621 req/s</small> | 0.86x<br><small>43,562 req/s</small> | 0.51x<br><small>26,027 req/s</small> |
+| Scenario         |                                snarl |                                  hono |                                  oak |                              express |
+| :---             |                                :---: |                                 :---: |                                :---: |                                :---: |
+| **plain text**   | 1.00x<br><small>73,554 req/s</small> | 1.36x<br><small>100,346 req/s</small> | 0.53x<br><small>38,960 req/s</small> | 0.30x<br><small>22,398 req/s</small> |
+| **JSON**         | 1.00x<br><small>73,005 req/s</small> |  0.88x<br><small>64,200 req/s</small> | 0.53x<br><small>38,842 req/s</small> | 0.26x<br><small>18,982 req/s</small> |
+| **path params**  | 1.00x<br><small>73,062 req/s</small> |  0.80x<br><small>58,573 req/s</small> | 0.48x<br><small>34,903 req/s</small> | 0.25x<br><small>18,190 req/s</small> |
+| **query params** | 1.00x<br><small>71,830 req/s</small> |  0.87x<br><small>62,502 req/s</small> | 0.43x<br><small>30,702 req/s</small> | 0.28x<br><small>20,362 req/s</small> |
 
 ## quick start
 

@@ -100,6 +100,4 @@ for (let r = 0; r < rows.length; r++) {
 	markdown += `| ${paddedCells.join(" | ")} |\n`;
 }
 
-console.log("\n### Performance Comparison\n");
-console.log(`Benchmarking frameworks using \`autocannon\`. snarl is set as baseline (1x).\n`);
 console.log(markdown);
