@@ -136,15 +136,17 @@ export function deleteCookie(
  * a helper class to manage request cookies (input) and response cookies (output)
  */
 export class CookieJar {
-	private cookies: Record<string, string>;
+	private parsed?: Record<string, string>;
 	private setCookieHeaders: string[] = [];
 
 	/**
 	 * parses the `Cookie` header and creates a new `CookieJar` instance
 	 * @param header the value of the `Cookie` request header
 	 */
-	constructor(header: string | null) {
-		this.cookies = parseCookies(header);
+	constructor(private readonly header: string | null) {}
+
+	private ensureParsed(): Record<string, string> {
+		return this.parsed ??= parseCookies(this.header);
 	}
 
 	/**
@@ -153,7 +155,7 @@ export class CookieJar {
 	 * @returns the cookie value or undefined if not found
 	 */
 	get(name: string): string | undefined {
-		return this.cookies[name];
+		return this.ensureParsed()[name];
 	}
 
 	/**
@@ -163,7 +165,7 @@ export class CookieJar {
 	 * @param options options for the cookie (`path`, `maxAge`, etc.)
 	 */
 	set(name: string, value: string, options?: CookieOptions): void {
-		this.cookies[name] = value;
+		this.ensureParsed()[name] = value;
 		this.setCookieHeaders = this.setCookieHeaders.filter((h) => !h.startsWith(`${name}=`));
 		this.setCookieHeaders.push(serializeCookie(name, value, options));
 	}
@@ -174,7 +176,7 @@ export class CookieJar {
 	 * @param options options such as domain/path to ensure correct matching
 	 */
 	delete(name: string, options?: Omit<CookieOptions, "expires" | "maxAge">): void {
-		delete this.cookies[name];
+		delete this.ensureParsed()[name];
 		this.setCookieHeaders.push(deleteCookie(name, options));
 	}
 
@@ -184,7 +186,7 @@ export class CookieJar {
 	 * @returns whether the cookie exists
 	 */
 	has(name: string): boolean {
-		return name in this.cookies;
+		return name in this.ensureParsed();
 	}
 
 	/**
@@ -192,7 +194,7 @@ export class CookieJar {
 	 * @returns an object of all cookie names and values
 	 */
 	allCookies(): Record<string, string> {
-		return { ...this.cookies };
+		return { ...this.ensureParsed() };
 	}
 
 	/**

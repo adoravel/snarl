@@ -312,18 +312,17 @@ export function compose(middlewares: Middleware[], handler: Handler<any>): Handl
 function response(
 	data: BodyInit | null,
 	contentType: string | null,
-	cookies: CookieJar,
-	arbitraryHeaders: Headers,
+	cookies: CookieJar | null,
+	headers2: Headers | null,
 	init?: ResponseInit,
 ): Response {
-	const headers = new Headers(init?.headers);
+	const headers = headers2 || new Headers(init?.headers);
 	if (contentType) headers.set("Content-Type", contentType);
 
-	arbitraryHeaders.forEach((value, key) => headers.set(key, value));
-
-	for (const setCookie of cookies.headers) {
-		headers.append("Set-Cookie", setCookie);
+	if (init?.headers) {
+		headers2?.forEach((value, key) => headers.set(key, value));
 	}
+	cookies?.headers.forEach((v) => headers.append("Set-Cookie", v));
 
 	return new Response(data, {
 		...init,
@@ -365,39 +364,51 @@ export function createContext<P>(
 	params: P,
 	requestId?: string,
 ): Context<P> {
-	const url = new URL(request.url);
-	const cookies = new CookieJar(request.headers.get("Cookie"));
-	const headers = new Headers();
+	let _url: URL | null = null;
+	let _cookies: CookieJar | null = null;
+	let _state: Map<string | symbol, unknown> | null = null;
+	let _headers: Headers | null = null;
 
 	const context: Context<P> = {
 		request,
 		sender,
 		params,
-		url,
-		state: new Map(),
-		requestId: requestId || crypto.randomUUID(),
-		cookies,
 		bodyCache: undefined,
-		query: url.searchParams,
-		headers,
+		get requestId() {
+			return requestId || crypto.randomUUID();
+		},
+		get url() {
+			return _url ??= new URL(this.request.url);
+		},
+		get headers() {
+			return _headers ??= new Headers();
+		},
+		get cookies() {
+			return _cookies ??= new CookieJar(this.request.headers.get("Cookie"));
+		},
+		get state() {
+			return _state ??= new Map();
+		},
+		get query() {
+			return this.url.searchParams;
+		},
 		get(name: string): string | null {
-			return headers.get(name);
+			return this.headers.get(name);
 		},
 		set(name: string, value: string): typeof context {
-			headers.set(name, value);
-			return context;
+			return this.headers.set(name, value), context;
 		},
 		json(data, init) {
-			return response(JSON.stringify(data), "application/json", cookies, headers, init);
+			return response(JSON.stringify(data), "application/json", _cookies, _headers, init);
 		},
 		html(content, init) {
-			return response(content, "text/html; charset=utf-8", cookies, headers, init);
+			return response(content, "text/html; charset=utf-8", _cookies, _headers, init);
 		},
 		text(content, init) {
-			return response(content, "text/plain; charset=utf-8", cookies, headers, init);
+			return response(content, "text/plain; charset=utf-8", _cookies, _headers, init);
 		},
 		redirect(url, status = 302) {
-			return response(null, null, cookies, headers, { status, headers: { Location: url } });
+			return response(null, null, _cookies, _headers, { status, headers: { Location: url } });
 		},
 		async send(path, init) {
 			try {
@@ -409,11 +420,11 @@ export function createContext<P>(
 				const file = await Deno.readFile(safePath);
 				const ext = extname(safePath).toLowerCase();
 
-				const resHeaders = new Headers(init?.headers);
-				resHeaders.set("Content-Type", getContentType(ext) || "application/octet-stream");
-				headers.forEach((v, k) => resHeaders.set(k, v));
+				const headers = new Headers(init?.headers);
+				headers.set("Content-Type", getContentType(ext) || "application/octet-stream");
+				_headers?.forEach((v, k) => headers.set(k, v));
 
-				return new Response(file, { ...init, headers: resHeaders });
+				return new Response(file, { ...init, headers: headers });
 			} catch (e) {
 				if (e instanceof HttpError) throw e;
 				throw new HttpError(404, "File not found");
@@ -438,12 +449,11 @@ export function createContext<P>(
 			throw new TooManyRequestsError(message, retryAfter);
 		},
 		created(data, init) {
-			return response(JSON.stringify(data), "application/json", cookies, headers, { ...init, status: 201 });
+			return response(JSON.stringify(data), "application/json", _cookies, _headers, { ...init, status: 201 });
 		},
 		noContent() {
-			return response(null, null, cookies, headers, { status: 204 });
+			return response(null, null, _cookies, _headers, { status: 204 });
 		},
-
 		body: {
 			async plain() {
 				return context.bodyCache ? JSON.stringify(context.bodyCache) : await request.text();
