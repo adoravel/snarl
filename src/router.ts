@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
-import { compose, createContext, ErrorHandler, Handler, Middleware } from "./middleware.ts";
+import { compose, Context, ErrorHandler, Handler, Middleware } from "./middleware.ts";
 import { HttpError, httpMethods, Method, ParametersOf, PreciseURLPattern, ReplaceReturnType } from "./utils.ts";
 
 export interface Route<P extends string> {
@@ -382,9 +382,9 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRo
 				method = "GET";
 			}
 
-			let ctx: ReturnType<typeof createContext<any>>;
+			let ctx: Context<any>;
+			const url = new URL(request.url);
 			try {
-				const url = new URL(request.url);
 				const match = matchRoute(tries[method], url.pathname);
 
 				const handle: Handler<any> = async (ctx) => {
@@ -395,8 +395,9 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRo
 					return await config.onNotFound(ctx);
 				};
 
-				ctx = createContext(
+				ctx = new Context(
 					request,
+					url,
 					info,
 					match?.params,
 					requestId,
@@ -422,7 +423,7 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRo
 					throw err;
 				}
 			} catch (e) {
-				ctx ??= createContext(request, info, {} as any, requestId);
+				ctx ??= new Context(request, url, info, {} as any, requestId);
 				return await config.onError(e as Error, ctx);
 			}
 		},

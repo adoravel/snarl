@@ -42,22 +42,30 @@ export interface UploadedFile {
  * the Context object represents a single HTTP request/response lifecycle,
  * holding request data and middleware state and providing response helpers
  */
-export interface Context<Params = Record<string, string>> {
-	/** the incoming Request object */
-	readonly request: Request;
-	/** Deno's connection info (remote address) */
-	readonly sender: Deno.ServeHandlerInfo<Deno.NetAddr>;
-	/** parameters extracted from the url path (e.g., `:id`) */
-	readonly params: Params;
-	/** the parsed url */
-	readonly url: URL;
-	/** a helper to manage cookies (request and response) */
-	readonly cookies: CookieJar;
-	/** a unique identifier for this request */
-	readonly requestId: string;
-
+export class Context<Params = Record<string, string>> {
 	/** the url search params object */
 	readonly query: URLSearchParams;
+	/** internal cache for body parsing */
+	bodyCache: unknown = undefined;
+
+	private _headers?: Headers;
+	private _cookies?: CookieJar;
+	private _state?: Map<string | symbol, unknown>;
+
+	constructor(
+		/** the incoming Request object */
+		public readonly request: Request,
+		/** the parsed url */
+		public readonly url: URL,
+		/** Deno's connection info (remote address) */
+		public readonly sender: Deno.ServeHandlerInfo<Deno.NetAddr>,
+		/** parameters extracted from the url path (e.g., `:id`) */
+		public readonly params: Params,
+		/** a unique identifier for this request */
+		public readonly requestId: string,
+	) {
+		this.query = url.searchParams;
+	}
 
 	/**
 	 * headers for the outgoing response
@@ -67,64 +75,143 @@ export interface Context<Params = Record<string, string>> {
 	 * ctx.get("X-Custom-Header") // "hai"
 	 * ```
 	 */
-	readonly headers: Headers;
+	get headers(): Headers {
+		return this._headers ??= new Headers();
+	}
 
-	/** gets a specific outgoing header value */
-	get(name: string): string | null;
-	/** sets an outgoing header value */
-	set(name: string, value: string): this;
-
-	/** internal cache for body parsing */
-	bodyCache: unknown;
+	/** a helper to manage cookies (request and response) */
+	get cookies(): CookieJar {
+		return this._cookies ??= new CookieJar(this.request.headers.get("Cookie"));
+	}
 
 	/**
-	 * shared state map for middleware. useful for passing data between different many
+	 * shared state map for middleware. useful for passing data between different
 	 * middleware stages.
 	 */
-	state: Map<string | symbol, unknown>;
+	get state(): Map<string | symbol, unknown> {
+		return this._state ??= new Map();
+	}
+
+	/** gets a specific outgoing header value */
+	get(name: string): string | null {
+		return this.headers.get(name);
+	}
+
+	/** sets an outgoing header value */
+	set(name: string, value: string): this {
+		return this.headers.set(name, value), this;
+	}
 
 	/**
 	 * sends a JSON response
 	 * @param data the object to serialize
 	 * @param init optional ResponseInit body
 	 */
-	json<T>(data: T, init?: ResponseInit): Response;
+	json<T>(data: T, init?: ResponseInit): Response {
+		const body = JSON.stringify(data);
+
+		if (!this._cookies?.headers.length && !this._headers) {
+			return new Response(body, {
+				...init,
+				headers: {
+					"Content-Type": "application/json",
+					...init?.headers,
+				},
+			});
+		}
+
+		return this.response(body, "application/json", init);
+	}
+
 	/**
 	 * sends an HTML response
 	 * @param content the html input to be sent
 	 * @param init optional ResponseInit body
 	 */
-	html(content: string, init?: ResponseInit): Response;
+	html(content: string, init?: ResponseInit): Response {
+		if (!this._cookies?.headers.length && !this._headers) {
+			return new Response(content, {
+				...init,
+				headers: {
+					"Content-Type": "text/html; charset=utf-8",
+					...init?.headers,
+				},
+			});
+		}
+
+		return this.response(content, "text/html; charset=utf-8", init);
+	}
+
 	/**
 	 * sends a plain text response
 	 * @param content the plain text input to be sent
 	 * @param init optional ResponseInit body
 	 */
-	text(content: string, init?: ResponseInit): Response;
+	text(content: string, init?: ResponseInit): Response {
+		if (!this._cookies?.headers.length && !this._headers) {
+			return new Response(content, {
+				...init,
+				headers: {
+					"Content-Type": "text/plain; charset=utf-8",
+					...init?.headers,
+				},
+			});
+		}
+
+		return this.response(content, "text/plain; charset=utf-8", init);
+	}
+
 	/**
 	 * redirects to a different url
 	 * @param url the url to redirect to
 	 * @param status the HTTP status code (defaults to 302)
 	 */
-	redirect(url: string, status?: number): Response;
+	redirect(url: string, status?: number): Response {
+		return this.response(null, null, {
+			status,
+			headers: { Location: url },
+		});
+	}
 
 	/** throws a 404 Not Found error */
-	notFound(message?: string): never;
+	notFound(message = "Not Found"): never {
+		throw new NotFoundError(message);
+	}
+
 	/** throws a 400 Bad Request error */
-	badRequest(message?: string): never;
+	badRequest(message = "Bad Request"): never {
+		throw new BadRequestError(message);
+	}
+
 	/** throws a 429 Too Many Requests error */
-	tooManyRequests(message?: string, retryAfter?: string): never;
+	tooManyRequests(message = "Too Many Requests Error", retryAfter?: string): never {
+		throw new TooManyRequestsError(message, retryAfter);
+	}
+
 	/** throws a 401 Unauthorized error */
-	unauthorized(message?: string): never;
+	unauthorized(message = "Unauthorized"): never {
+		throw new UnauthorizedError(message);
+	}
+
 	/** throws a 403 Forbidden error */
-	forbidden(message?: string): never;
+	forbidden(message = "Forbidden"): never {
+		throw new ForbiddenError(message);
+	}
+
 	/** throws a 500 Internal Server Error */
-	internalError(message?: string): never;
+	internalError(message = "Internal Server Error"): never {
+		throw new InternalServerError(message);
+	}
 
 	/** sends a 201 Created JSON response */
-	created<T>(data: T, init?: ResponseInit): Response;
+	created<T>(data: T, init?: ResponseInit): Response {
+		return this.json(data, { ...init, status: 201 });
+	}
+
 	/** sends a 204 No Content response */
-	noContent(): Response;
+	noContent(): Response {
+		return this.response(null, null, { status: 204 });
+	}
 
 	/**
 	 * sends a file from the filesystem.
@@ -138,33 +225,50 @@ export interface Context<Params = Record<string, string>> {
 	 * });
 	 * ```
 	 */
-	send(path: string, init?: ResponseInit): Promise<Response>;
+	async send(path: string, init?: ResponseInit): Promise<Response> {
+		try {
+			const safePath = resolve(Deno.cwd(), path);
+			const stat = await Deno.stat(safePath);
+
+			if (stat.isDirectory) throw new HttpError(400, "Cannot send directory");
+
+			const file = await Deno.readFile(safePath);
+			const ext = extname(safePath).toLowerCase();
+
+			const headers = new Headers(init?.headers);
+			headers.set("Content-Type", getContentType(ext) || "application/octet-stream");
+			this._headers?.forEach((v, k) => headers.set(k, v));
+
+			return new Response(file, { ...init, headers });
+		} catch (e) {
+			if (e instanceof HttpError) throw e;
+			throw new HttpError(404, "File not found");
+		}
+	}
 
 	/** methods for accessing the request body */
-	body: {
+	body = {
 		/**
 		 * returns the body as a string.
 		 * if the body was previously parsed as JSON, it returns `JSON.stringify` of the cache
 		 */
-		plain(): Promise<string>;
+		plain: async (): Promise<string> => {
+			return this.bodyCache ? JSON.stringify(this.bodyCache) : await this.request.text();
+		},
+
 		/**
 		 * returns the body as a parsed JSON object.
 		 * uses native `request.json()` for efficiency
-		 * @example
-		 * ```ts
-		 * app.post("/data", async (ctx) => {
-		 *   const body = await ctx.body.json<{ name: string }>();
-		 *
-		 * 	 // unsafe operation: data must be validated beforehand
-		 *   return ctx.json({ received: body.name });
-		 * });
-		 * ```
 		 */
-		json<T = any>(): Promise<T>;
+		json: async <T = any>(): Promise<T> => {
+			return this.bodyCache as T ?? await this.request.json();
+		},
 	};
 
 	/** returns the body as a `FormData` object */
-	formData(): Promise<FormData>;
+	formData(): Promise<FormData> {
+		return this.request.formData();
+	}
 
 	/**
 	 * parses the body as `multipart/form-data`
@@ -178,10 +282,30 @@ export interface Context<Params = Record<string, string>> {
 	 * });
 	 * ```
 	 */
-	multipart(): Promise<{
+	async multipart(): Promise<{
 		fields: Record<string, string>;
 		files: Record<string, UploadedFile>;
-	}>;
+	}> {
+		const formData = await this.request.formData();
+		const fields: Record<string, string> = {};
+		const files: Record<string, UploadedFile> = {};
+
+		for (const [name, value] of formData.entries()) {
+			if (value instanceof File) {
+				files[name] = {
+					name,
+					filename: value.name,
+					type: value.type,
+					size: value.size,
+					content: new Uint8Array(await value.arrayBuffer()),
+				};
+			} else {
+				fields[name] = value;
+			}
+		}
+
+		return { fields, files };
+	}
 
 	/**
 	 * checks whether the incoming request's `Content-Type` header matches the given MIME type(s).
@@ -200,7 +324,34 @@ export interface Context<Params = Record<string, string>> {
 		request: Request & {
 			headers: Headers & { get(name: "content-type"): T };
 		};
-	};
+	} {
+		const kind = this.request.headers.get("Content-Type");
+		if (!kind) return false;
+
+		if (Array.isArray(type)) {
+			return type.some((t) => kind.includes(t));
+		}
+		return kind.includes(type);
+	}
+
+	private response(
+		data: BodyInit | null,
+		contentType: string | null,
+		init?: ResponseInit,
+	): Response {
+		const headers = new Headers(init?.headers);
+
+		if (contentType) {
+			headers.set("Content-Type", contentType);
+		}
+		this._headers?.forEach((value, key) => headers.set(key, value));
+		this._cookies?.headers.forEach((v) => headers.append("Set-Cookie", v));
+
+		return new Response(data, {
+			...init,
+			headers,
+		});
+	}
 }
 
 /**
@@ -309,27 +460,6 @@ export function compose(middlewares: Middleware[], handler: Handler<any>): Handl
 	};
 }
 
-function response(
-	data: BodyInit | null,
-	contentType: string | null,
-	cookies: CookieJar | null,
-	headers2: Headers | null,
-	init?: ResponseInit,
-): Response {
-	const headers = headers2 || new Headers(init?.headers);
-	if (contentType) headers.set("Content-Type", contentType);
-
-	if (init?.headers) {
-		headers2?.forEach((value, key) => headers.set(key, value));
-	}
-	cookies?.headers.forEach((v) => headers.append("Set-Cookie", v));
-
-	return new Response(data, {
-		...init,
-		headers,
-	});
-}
-
 function getContentType(ext: string): string | undefined {
 	const contentTypes: Record<string, string> = {
 		".html": "text/html; charset=utf-8",
@@ -353,154 +483,6 @@ function getContentType(ext: string): string | undefined {
 		".mp4": "video/mp4",
 	};
 	return contentTypes[ext];
-}
-
-/**
- * creates a new `Context` object
- */
-export function createContext<P>(
-	request: Request,
-	sender: Deno.ServeHandlerInfo<Deno.NetAddr>,
-	params: P,
-	requestId?: string,
-): Context<P> {
-	const url = new URL(request.url);
-	let _cookies: CookieJar | null = null;
-	let _state: Map<string | symbol, unknown> | null = null;
-	let _headers: Headers | null = null;
-
-	const context: Context<P> = {
-		request,
-		sender,
-		params,
-		bodyCache: undefined,
-		url,
-		get requestId() {
-			return requestId || crypto.randomUUID();
-		},
-		get headers() {
-			return _headers ??= new Headers();
-		},
-		get cookies() {
-			return _cookies ??= new CookieJar(this.request.headers.get("Cookie"));
-		},
-		get state() {
-			return _state ??= new Map();
-		},
-		get query() {
-			return this.url.searchParams;
-		},
-		get(name: string): string | null {
-			return this.headers.get(name);
-		},
-		set(name: string, value: string): typeof context {
-			return this.headers.set(name, value), context;
-		},
-		json(data, init) {
-			return response(JSON.stringify(data), "application/json", _cookies, _headers, init);
-		},
-		html(content, init) {
-			return response(content, "text/html; charset=utf-8", _cookies, _headers, init);
-		},
-		text(content, init) {
-			return response(content, "text/plain; charset=utf-8", _cookies, _headers, init);
-		},
-		redirect(url, status = 302) {
-			return response(null, null, _cookies, _headers, { status, headers: { Location: url } });
-		},
-		async send(path, init) {
-			try {
-				const safePath = resolve(Deno.cwd(), path);
-
-				const stat = await Deno.stat(safePath);
-				if (stat.isDirectory) throw new HttpError(400, "Cannot send directory");
-
-				const file = await Deno.readFile(safePath);
-				const ext = extname(safePath).toLowerCase();
-
-				const headers = new Headers(init?.headers);
-				headers.set("Content-Type", getContentType(ext) || "application/octet-stream");
-				_headers?.forEach((v, k) => headers.set(k, v));
-
-				return new Response(file, { ...init, headers: headers });
-			} catch (e) {
-				if (e instanceof HttpError) throw e;
-				throw new HttpError(404, "File not found");
-			}
-		},
-		notFound(message = "Not Found"): never {
-			throw new NotFoundError(message);
-		},
-		badRequest(message = "Bad Request"): never {
-			throw new BadRequestError(message);
-		},
-		unauthorized(message = "Unauthorized"): never {
-			throw new UnauthorizedError(message);
-		},
-		forbidden(message = "Forbidden"): never {
-			throw new ForbiddenError(message);
-		},
-		internalError(message = "Internal Server Error"): never {
-			throw new InternalServerError(message);
-		},
-		tooManyRequests(message = "Too Many Requests Error", retryAfter?: string): never {
-			throw new TooManyRequestsError(message, retryAfter);
-		},
-		created(data, init) {
-			return response(JSON.stringify(data), "application/json", _cookies, _headers, { ...init, status: 201 });
-		},
-		noContent() {
-			return response(null, null, _cookies, _headers, { status: 204 });
-		},
-		body: {
-			async plain() {
-				return context.bodyCache ? JSON.stringify(context.bodyCache) : await request.text();
-			},
-			async json() {
-				return context.bodyCache ?? await request.json();
-			},
-		},
-		formData() {
-			return request.formData();
-		},
-		async multipart() {
-			const formData = await request.formData();
-			const fields: Record<string, string> = {};
-			const files: Record<string, UploadedFile> = {};
-
-			for (const [name, value] of formData.entries()) {
-				if (value instanceof File) {
-					files[name] = {
-						name,
-						filename: value.name,
-						type: value.type,
-						size: value.size,
-						content: new Uint8Array(await value.arrayBuffer()),
-					};
-				} else {
-					fields[name] = value;
-				}
-			}
-
-			return { fields, files };
-		},
-		is<T extends string>(
-			type: T | T[],
-		): this is Context & {
-			request: Request & {
-				headers: Headers & { get(name: "content-type"): T };
-			};
-		} {
-			const kind = this.request.headers.get("Content-Type");
-			if (!kind) return false;
-
-			if (Array.isArray(type)) {
-				return type.some((t) => kind.includes(t));
-			}
-			return kind.includes(type);
-		},
-	};
-	return context;
 }
 
 /**
