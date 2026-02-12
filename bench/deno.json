@@ -1,0 +1,17 @@
+{
+	"tasks": {
+		"start": "deno run --allow-env --allow-net --allow-write mod.ts",
+		"generate": "deno run --allow-read --allow-env generate.ts"
+	},
+	"compilerOptions": {
+		"noImplicitAny": false
+	},
+	"imports": {
+		"@cliffy/table": "jsr:@cliffy/table@^1.0.0",
+		"hono": "jsr:@hono/hono@^4.11.9",
+		"@july/snarl": "../src/mod.ts",
+		"@oak/oak": "jsr:@oak/oak@^17.2.0",
+		"autocannon": "npm:autocannon@^8.0.0",
+		"express": "npm:express@^5.2.1"
+	}
+}

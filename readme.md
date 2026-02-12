@@ -14,6 +14,17 @@ a minimal web framework for deno
 - multipart file uploads and automatic body parsing
 - global error handling and cookie jar management
 
+### performance comparison
+
+frameworks were benchmarked using `autocannon`. `snarl 0.2.6` is set as baseline (`1x`).
+
+| Scenario         |                 hono                  |                snarl                 |                 oak                  |               express                |
+| :--------------- | :-----------------------------------: | :----------------------------------: | :----------------------------------: | :----------------------------------: |
+| **plain text**   | 1.93x<br><small>113,293 req/s</small> | 1.00x<br><small>58,838 req/s</small> | 0.81x<br><small>47,878 req/s</small> | 0.48x<br><small>28,093 req/s</small> |
+| **JSON**         | 1.48x<br><small>84,166 req/s</small>  | 1.00x<br><small>56,752 req/s</small> | 0.83x<br><small>47,187 req/s</small> | 0.48x<br><small>27,285 req/s</small> |
+| **path params**  | 1.49x<br><small>78,150 req/s</small>  | 1.00x<br><small>52,355 req/s</small> | 0.86x<br><small>44,922 req/s</small> | 0.51x<br><small>26,520 req/s</small> |
+| **query params** | 1.61x<br><small>81,325 req/s</small>  | 1.00x<br><small>50,621 req/s</small> | 0.86x<br><small>43,562 req/s</small> | 0.51x<br><small>26,027 req/s</small> |
+
 ## quick start
 
 ```json
