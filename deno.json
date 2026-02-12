@@ -3,15 +3,19 @@
 	"description": "a minimal web framework for deno",
 	"version": "0.2.6",
 	"license": "Apache-2.0",
+	"workspace": ["./bench"],
 	"exports": {
 		".": "./src/mod.ts",
 		"./jsx-runtime": "./src/jsx-runtime.ts",
 		"./jsx-dev-runtime": "./src/jsx-runtime.ts"
 	},
 	"tasks": {
-		"dev": "deno run --allow-net --watch src/main.tsx"
+		"dev": "deno run --allow-net --watch src/main.tsx",
+		"bench": "deno task --cwd=bench start",
+		"bench:gen": "deno task --cwd=bench generate"
 	},
 	"imports": {
+		"@july/snarl": "./src/mod.ts",
 		"@std/encoding": "jsr:@std/encoding@^1.0.10",
 		"@std/path": "jsr:@std/path@^1.1.4",
 		"@std/http": "jsr:@std/http@^1.0.24"

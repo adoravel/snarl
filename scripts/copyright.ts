@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run --allow-read --allow-write
 /**
- * Copyright (c) 2025 favewa
+ * Copyright (c) 2025 adoravel
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
@@ -18,7 +18,7 @@ for await (
 	const entry of walk(dir, {
 		exts: [".ts", ".tsx"],
 		includeDirs: false,
-		skip: [/copyright\.ts$/],
+		skip: [/(copyright|generate|loc)\.ts$/],
 	})
 ) {
 	const filePath = entry.path;
