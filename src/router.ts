@@ -19,7 +19,7 @@ export interface Route<P extends string> {
 }
 
 /**
- * metadata that can be attached to routes for documentation (usually openapi)
+ * metadata that can be attached to routes for documentation
  */
 export interface RouteMetadata {
 	description?: string;
@@ -100,10 +100,12 @@ function findRoute(routes: Route<any>[], url: string): { route: Route<any>; para
 			const params = (match.pathname.groups || {}) as Record<string, string>;
 
 			for (const [key, value] of Object.entries(params)) {
-				try {
-					params[key] = decodeURIComponent(value);
-				} catch (_e) {
-					// no-op
+				if (value.includes("%")) {
+					try {
+						params[key] = decodeURIComponent(value);
+					} catch (_e) {
+						// no-op
+					}
 				}
 			}
 
