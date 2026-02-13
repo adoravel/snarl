@@ -54,7 +54,7 @@ interface Router {
 		metadata?: RouteMetadata,
 	): void;
 
-	group(prefix: string, configure: (router: Router) => void): Router;
+	group(prefix: string, configure: (router: ExtendedRouter) => void): this;
 
 	fetch(
 		request: Request,
@@ -223,6 +223,10 @@ function matchRoute(root: TrieNode, pathname: string): MatchResult | null {
 			for (const child of node.children) {
 				if (child.optional && child.handler && child.route) {
 					return { handler: child.handler, params, route: child.route };
+				}
+				if (child.type === NodeType.WILDCARD && child.handler && child.route) {
+					const newParams = { ...params, [child.paramName || "*"]: "" };
+					return { handler: child.handler, params: newParams, route: child.route };
 				}
 			}
 			return null;

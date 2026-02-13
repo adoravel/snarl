@@ -18,6 +18,7 @@ export type Method = typeof httpMethods[number];
 type ExtractParameterNames<S extends string> = S extends `${string}:${infer Param}/${infer Rest}`
 	? Param | ExtractParameterNames<`/${Rest}`>
 	: S extends `${string}:${infer Param}` ? Param
+	: S extends `${string}/*${infer _Rest}` ? "*"
 	: never;
 
 type Skippable<S extends string, T> = S extends `${string}?` ? T | undefined
@@ -27,7 +28,8 @@ type StripOptional<S extends string> = S extends `${infer P}?` ? P : S;
 
 /**
  * constructs a typed object for route parameters
- * @example ParametersOf<"/cats/:id/meows/:meowId"> // { id: string; meowId: string }
+ * @example ParametersOf<"/cats/:id/meows/:mrrp"> // { id: string; mrrp: string }
+ * @example ParametersOf<"/bleh/*"> // { "*": string }
  */
 export type ParametersOf<S extends string> = {
 	[K in ExtractParameterNames<S> as StripOptional<K>]: Skippable<K, string>;
