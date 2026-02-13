@@ -1,5 +1,5 @@
 /**
- * @module jsx
+ * @module jsx-runtime
  * Minimal async-aware, JSX `precompile` renderer.
  */
 
@@ -9,7 +9,7 @@
  */
 
 // deno-fmt-ignore
-export const voidTags: Set<string> = new Set([
+export const voidTags: ReadonlySet<string> = new Set([
 	"area", "base", "br", "col", "embed", "hr", "img", "input",
 	"link", "meta", "param", "source", "track", "wbr",
 ]);
@@ -20,11 +20,11 @@ const ESC_LUT: Record<string, string> = {
 };
 const ESC_RE = /[&<>"']/g;
 
-export const Fragment = Symbol("jsx.fragment") as any as JsxElement;
+export const Fragment = Symbol("jsx.fragment");
 
-export type Component<P = Props> = (props: P) => JsxElement | Promise<JsxElement>;
+export type Component<P = Props> = (props: P) => JsxElement;
 
-export type JsxElement = string;
+export type JsxElement = string | Promise<string>;
 
 type Props = {
 	children?: JsxElement | JsxElement[];
@@ -32,8 +32,11 @@ type Props = {
 	[key: string]: unknown;
 };
 
-export const jsxEscape = (input: string): string =>
-	typeof input !== "string" ? input : input.replace(ESC_RE, (c) => ESC_LUT[c]);
+function escape(input: string): string {
+	return input.replace(ESC_RE, (c) => ESC_LUT[c]);
+}
+
+export const jsxEscape = (input: unknown): string => input == null ? "" : String(input);
 
 export function jsxAttr(k: string, v: unknown): string {
 	if (v == null || v === false) return "";
@@ -43,14 +46,14 @@ export function jsxAttr(k: string, v: unknown): string {
 		const style = Object.entries(v as Record<string, string | number>)
 			.map(([key, val]) => {
 				key = key.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`);
-				return `${key}:${val}`;
+				return `${key}:${escape(String(val))}`;
 			})
 			.join(";");
 		return style ? ` style="${style}"` : "";
 	}
 
 	if (k.startsWith("on")) return "";
-	return ` ${k}="${jsxEscape(String(v))}"`;
+	return ` ${k}="${escape(String(v))}"`;
 }
 
 function render(node: any): string | Promise<string> {
@@ -58,33 +61,83 @@ function render(node: any): string | Promise<string> {
 	if (typeof node === "string") return node;
 
 	if (node instanceof Promise) {
-		return node.then(render);
+		return node.then((v) => render(v));
 	}
 
-	if (typeof node === "function") return render(node());
 	if (Array.isArray(node)) {
-		let hasPromise = false;
-		const mapped = node.map((child) => {
-			const res = render(child);
-			if (res instanceof Promise) hasPromise = true;
-			return res;
-		});
-		if (hasPromise) {
-			return Promise.all(mapped).then((parts) => parts.join(""));
+		let html = "";
+
+		for (let i = 0; i < node.length; i++) {
+			const r = render(node[i]);
+			if (r instanceof Promise) {
+				return continueArrayAsync(html, node, i, r);
+			}
+			html += r;
 		}
-		return (mapped as string[]).join("");
+
+		return html;
 	}
 
-	return jsxEscape(String(node));
+	return escape(String(node));
 }
 
-export function jsxTemplate(template: string[], ...values: unknown[]): string {
+async function continueArrayAsync(
+	html: string,
+	node: unknown[],
+	index: number,
+	firstPromise: Promise<string>,
+): Promise<string> {
+	html += await firstPromise;
+
+	for (let i = index + 1; i < node.length; i++) {
+		html += await render(node[i]);
+	}
+
+	return html;
+}
+
+export function jsxTemplate(
+	template: string[],
+	...values: unknown[]
+): string | Promise<string> {
 	let html = "";
+
 	for (let i = 0; i < template.length; i++) {
 		html += template[i];
-		if (i < values.length) html += render(values[i]);
+
+		if (i < values.length) {
+			const r = render(values[i]);
+
+			if (r instanceof Promise) {
+				return continueAsync(html, template, values, i, r);
+			}
+			html += r;
+		}
 	}
+
 	return html;
+}
+
+function continueAsync(
+	html: string,
+	template: string[],
+	values: unknown[],
+	index: number,
+	firstPromise: Promise<string>,
+): Promise<string> {
+	return (async () => {
+		html += await firstPromise;
+
+		for (let i = index + 1; i < template.length; i++) {
+			html += template[i];
+
+			if (i < values.length) {
+				html += await render(values[i]);
+			}
+		}
+
+		return html;
+	})();
 }
 
 /**
@@ -107,23 +160,38 @@ export function jsx<P extends Props = Props>(
 		return result instanceof Promise ? result.then(render) : render(result);
 	}
 
+	if (typeof tag !== "string") {
+		throw new TypeError("invalid jsx tag");
+	}
+
 	let html = `<${tag}`;
 	for (const name in attrs) {
 		html += jsxAttr(name, attrs[name]);
 	}
+	html += ">";
 
-	const isVoid = voidTags.has(tag);
-	html += isVoid ? "/>" : ">";
-
-	if (!isVoid) {
+	if (!voidTags.has(tag)) {
 		const inner = render(children);
 		if (inner instanceof Promise) {
-			return inner.then((c) => html + (dangerouslySetInnerHTML?.__html ?? c) + `</${tag}>`);
+			return closeAsync(html, inner, dangerouslySetInnerHTML, tag);
+		}
+		if (dangerouslySetInnerHTML?.__html && children != null) {
+			throw new Error("cannot use both children and dangerouslySetInnerHTML");
 		}
 		html += dangerouslySetInnerHTML?.__html ?? inner;
 		html += `</${tag}>`;
 	}
 	return html;
+}
+
+async function closeAsync(
+	html: string,
+	inner: Promise<string>,
+	dangerouslySetInnerHTML: { __html: string } | undefined,
+	tag: string,
+): Promise<string> {
+	const c = await inner;
+	return html + (dangerouslySetInnerHTML?.__html ?? c) + `</${tag}>`;
 }
 
 type CSSProperties =
