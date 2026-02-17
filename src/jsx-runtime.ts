@@ -15,16 +15,32 @@ export const voidTags: ReadonlySet<string> = new Set([
 ]);
 
 // deno-fmt-ignore
-const ESC_LUT: Record<string, string> = {
-	"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-};
-const ESC_RE = /[&<>"']/g;
+const ESC_RE = /[&<>"']/;
+
+const enum EscapeLut {
+	AMP = 38,
+	LESS_THAN = 60,
+	GREATER_THAN = 62,
+	DOUBLE_QUOTE = 34,
+	SINGLE_QUOTE = 39,
+}
+
+interface Html {
+	__html?: string;
+}
 
 export const Fragment = Symbol("jsx.fragment");
+const jsxBrand = Symbol.for("jsx.element");
 
-export type Component<P = Props> = (props: P) => JsxElement;
+export interface JsxElement {
+	readonly [jsxBrand]: true;
+	readonly tag: string | Component | typeof Fragment;
+	readonly props: Props;
+}
 
-export type JsxElement = string | Promise<string>;
+export type Component<P extends Props = Props> = (props: P) => JsxNode;
+
+export type JsxNode = string | number | boolean | null | undefined | JsxElement | JsxNode[] | Promise<JsxNode>;
 
 type Props = {
 	children?: JsxElement | JsxElement[];
@@ -32,53 +48,130 @@ type Props = {
 	[key: string]: unknown;
 };
 
-function escape(input: string): string {
-	return input.replace(ESC_RE, (c) => ESC_LUT[c]);
+const prototype: Pick<JsxElement, typeof jsxBrand> = Object.create(null, {
+	[jsxBrand]: { value: true, enumerable: false, writable: false },
+	toString: {
+		value: function () {
+			return renderTrusted(this);
+		},
+	},
+});
+
+function isJsxElement(value: unknown): value is JsxElement {
+	return typeof value === "object" && value != null && jsxBrand in value;
 }
 
-export const jsxEscape = (input: unknown): string => input == null ? "" : String(input);
+function ignore(value: unknown): value is undefined | null | false {
+	return value == null || value === undefined || value === false;
+}
+
+function encode(str: string): string {
+	if (!str.length || !ESC_RE.test(str)) return str;
+
+	let out = "", last = 0;
+
+	for (let i = 0; i < str.length; i++) {
+		let esc: string;
+
+		// deno-fmt-ignore
+		switch (str.charCodeAt(i)) {
+			case EscapeLut.AMP:          esc = "&amp;";  break;
+			case EscapeLut.LESS_THAN:    esc = "&lt;";   break;
+			case EscapeLut.GREATER_THAN: esc = "&gt;";   break;
+			case EscapeLut.DOUBLE_QUOTE: esc = "&quot;"; break;
+			case EscapeLut.SINGLE_QUOTE: esc = "&#39;";  break;
+			default: continue;
+		}
+
+		if (i !== last) out += str.slice(last, i);
+		out += esc, last = i + 1;
+	}
+
+	return last === 0 ? str : out + str.slice(last);
+}
+
+export function jsxEscape(value: unknown): string | Promise<string> {
+	if (ignore(value)) return "";
+	if (Array.isArray(value)) return renderTrustedArray(value);
+
+	switch (typeof value) {
+		case "string":
+			return encode(value);
+		case "object":
+			if ("__html" in value) {
+				return (value as Html).__html ?? "";
+			}
+			if (isJsxElement(value)) {
+				return renderJsx(value);
+			}
+			break;
+		case "number":
+		case "boolean":
+			return value.toString();
+	}
+
+	return value as string;
+}
 
 export function jsxAttr(k: string, v: unknown): string {
 	if (v == null || v === false) return "";
 	if (v === true) return ` ${k}`;
 
 	if (k === "style" && typeof v === "object" && !Array.isArray(v)) {
-		const style = Object.entries(v as Record<string, string | number>)
-			.map(([key, val]) => {
-				key = key.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`);
-				return `${key}:${escape(String(val))}`;
-			})
-			.join(";");
-		return style ? ` style="${style}"` : "";
+		const css = renderStyle(v as Record<string, string | number>);
+		return css ? ` style="${css}"` : "";
 	}
 
 	if (k.startsWith("on")) return "";
-	return ` ${k}="${escape(String(v))}"`;
+	return ` ${k}="${encode(String(v))}"`;
 }
 
-function render(node: any): string | Promise<string> {
-	if (node == null || typeof node === "boolean") return "";
+function renderStyle(style: Record<string, string | number>): string {
+	let css = "";
+
+	for (const key in style) {
+		const val = style[key];
+		if (val == null) continue;
+		const prop = key.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`);
+		css += `${prop}:${encode(String(val))};`;
+	}
+	return css;
+}
+
+function renderTrusted(node: unknown): string | Promise<string> {
+	if (node == null || node === false || node === true) return "";
 	if (typeof node === "string") return node;
+	if (typeof node === "number") return String(node);
 
 	if (node instanceof Promise) {
-		return node.then((v) => render(v));
+		return node.then((v) => renderTrusted(v));
 	}
-
 	if (Array.isArray(node)) {
-		let html = "";
-
-		for (let i = 0; i < node.length; i++) {
-			const r = render(node[i]);
-			if (r instanceof Promise) {
-				return continueArrayAsync(html, node, i, r);
-			}
-			html += r;
-		}
-
-		return html;
+		return renderTrustedArray(node);
+	}
+	if (isJsxElement(node)) {
+		return renderJsx(node);
+	}
+	if (typeof node === "object" && "__html" in node) {
+		return (node as Html).__html!;
 	}
 
-	return escape(String(node));
+	return String(node);
+}
+
+function renderTrustedArray(nodes: unknown[]): string | Promise<string> {
+	let html = "";
+
+	for (let i = 0; i < nodes.length; i++) {
+		const r = renderTrusted(nodes[i]);
+
+		if (r instanceof Promise) {
+			return continueArrayAsync(html, nodes, i, r);
+		}
+		html += r;
+	}
+
+	return html;
 }
 
 async function continueArrayAsync(
@@ -88,11 +181,9 @@ async function continueArrayAsync(
 	firstPromise: Promise<string>,
 ): Promise<string> {
 	html += await firstPromise;
-
 	for (let i = index + 1; i < node.length; i++) {
-		html += await render(node[i]);
+		html += await renderTrusted(node[i]);
 	}
-
 	return html;
 }
 
@@ -100,44 +191,37 @@ export function jsxTemplate(
 	template: string[],
 	...values: unknown[]
 ): string | Promise<string> {
-	let html = "";
+	let html = template[0];
 
-	for (let i = 0; i < template.length; i++) {
-		html += template[i];
+	for (let i = 0; i < values.length; i++) {
+		const r = renderTrusted(values[i]);
 
-		if (i < values.length) {
-			const r = render(values[i]);
-
-			if (r instanceof Promise) {
-				return continueAsync(html, template, values, i, r);
-			}
-			html += r;
+		if (r instanceof Promise) {
+			return continueAsync(html, template, values, i, r);
 		}
+
+		html += r + template[i + 1];
 	}
 
 	return html;
 }
 
-function continueAsync(
+async function continueAsync(
 	html: string,
 	template: string[],
 	values: unknown[],
 	index: number,
-	firstPromise: Promise<string>,
+	pending: Promise<string>,
 ): Promise<string> {
-	return (async () => {
-		html += await firstPromise;
+	html += await pending;
+	html += template[index + 1];
 
-		for (let i = index + 1; i < template.length; i++) {
-			html += template[i];
+	for (let i = index + 1; i < values.length; i++) {
+		html += await renderTrusted(values[i] as JsxNode);
+		html += template[i + 1];
+	}
 
-			if (i < values.length) {
-				html += await render(values[i]);
-			}
-		}
-
-		return html;
-	})();
+	return html;
 }
 
 /**
@@ -147,17 +231,25 @@ function continueAsync(
  * @param props the attributes and children of the element
  * @returns either the rendered html string or a `Promise` resolving to one
  */
-export function jsx<P extends Props = Props>(
-	tag: string | Component<P> | typeof Fragment,
-	props: P | null = {} as P,
-): string | Promise<string> {
-	props ??= {} as P;
+export function jsx<P extends Props = Props>(tag: JsxElement["tag"], props: P | null = {} as P): JsxElement {
+	const el = Object.create(prototype);
+	el.tag = tag;
+	el.props = props ?? {};
+	return el;
+}
+
+function renderJsx(element: JsxElement): string | Promise<string> {
+	const { tag, props } = element;
 	const { children, dangerouslySetInnerHTML, ...attrs } = props;
 
-	if (tag === Fragment) return render(children);
+	if (tag === Fragment) return renderTrusted(children);
 	if (typeof tag === "function") {
-		const result = tag(props);
-		return result instanceof Promise ? result.then(render) : render(result);
+		const result = tag(props as any);
+
+		if (result instanceof Promise) {
+			return result.then((r) => ignore(r) ? "" : typeof r === "string" ? r : renderJsx(r as JsxElement));
+		}
+		return ignore(result) ? "" : typeof result === "string" ? result : renderJsx(result as JsxElement);
 	}
 
 	if (typeof tag !== "string") {
@@ -170,28 +262,20 @@ export function jsx<P extends Props = Props>(
 	}
 	html += ">";
 
-	if (!voidTags.has(tag)) {
-		const inner = render(children);
-		if (inner instanceof Promise) {
-			return closeAsync(html, inner, dangerouslySetInnerHTML, tag);
-		}
-		if (dangerouslySetInnerHTML?.__html && children != null) {
-			throw new Error("cannot use both children and dangerouslySetInnerHTML");
-		}
-		html += dangerouslySetInnerHTML?.__html ?? inner;
-		html += `</${tag}>`;
-	}
-	return html;
-}
+	if (voidTags.has(tag)) return html;
 
-async function closeAsync(
-	html: string,
-	inner: Promise<string>,
-	dangerouslySetInnerHTML: { __html: string } | undefined,
-	tag: string,
-): Promise<string> {
-	const c = await inner;
-	return html + (dangerouslySetInnerHTML?.__html ?? c) + `</${tag}>`;
+	if (dangerouslySetInnerHTML != null && children != null) {
+		throw new Error("cannot use both children and dangerouslySetInnerHTML");
+	}
+	if (dangerouslySetInnerHTML != null) {
+		return html + dangerouslySetInnerHTML.__html + `</${tag}>`;
+	}
+
+	const inner = renderTrusted(children);
+	if (inner instanceof Promise) {
+		return inner.then((c) => html + c + `</${tag}>`);
+	}
+	return html + inner + `</${tag}>`;
 }
 
 type CSSProperties =
@@ -210,8 +294,10 @@ type HTMLAttributeMap<T = HTMLElement> = Partial<
 	Omit<T, keyof Element | "children" | "style" | "href"> & {
 		style?: string | CSSProperties;
 		class?: string;
-		dangerouslySetInnerHTML?: { __html: string };
+		dangerouslySetInnerHTML?: Html;
 		children?: any;
+		key?: string;
+		charset?: string;
 		href: string | SVGAnimatedString;
 		[key: `data-${string}`]: string | number | boolean | null | undefined;
 		[key: `aria-${string}`]: string | number | boolean | null | undefined;
@@ -243,3 +329,5 @@ export declare namespace JSX {
 			>;
 		};
 }
+
+export { jsx as jsxDEV, jsx as jsxs };
