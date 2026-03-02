@@ -122,7 +122,6 @@ export function jsxAttr(k: string, v: unknown): string {
 		return css ? ` style="${css}"` : "";
 	}
 
-	if (k.startsWith("on")) return "";
 	return ` ${k}="${encode(String(v))}"`;
 }
 
@@ -294,6 +293,9 @@ type HTMLAttributeMap<T = HTMLElement> = Partial<
 	Omit<T, keyof Element | "children" | "style" | "href"> & {
 		style?: string | CSSProperties;
 		class?: string;
+		id?: string;
+		target?: string;
+		rel?: string;
 		dangerouslySetInnerHTML?: Html;
 		children?: any;
 		key?: string;
