@@ -590,7 +590,7 @@ export function staticFiles(root: string, options: {
 	etag?: boolean;
 	dotfiles?: "allow" | "ignore" | "deny";
 } = {}): Middleware {
-	const { maxAge = 0, immutable = false, index = "index.html", etag = true, dotfiles = "ignore" } = options;
+	const { maxAge = 3600, immutable = false, index = "index.html", etag = true, dotfiles = "ignore" } = options;
 	root = resolve(Deno.cwd(), root);
 
 	return async (ctx, next) => {
