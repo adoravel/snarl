@@ -289,34 +289,52 @@ type CSSProperties =
 		[key: `-ms-${string}`]: string | number;
 	};
 
-type HTMLAttributeMap<T = HTMLElement> = Partial<
-	Omit<T, keyof Element | "children" | "style" | "href"> & {
+type StringifyDOMProp<T> = T extends string ? string
+	: T extends number ? string | number
+	: T extends boolean ? string | boolean
+	: T extends SVGAnimatedString ? string
+	: T extends SVGAnimatedLength ? string | number
+	: T extends SVGAnimatedRect ? string
+	// deno-lint-ignore ban-types
+	: T extends Function ? string | T
+	: string;
+
+type HTMLAttributeMap<T = HTMLElement> =
+	& Omit<
+		{
+			[K in keyof T]?: StringifyDOMProp<T[K]>;
+		},
+		keyof Element | "children" | "style" | "href"
+	>
+	& {
 		style?: string | CSSProperties;
 		class?: string;
-		id?: string;
-		target?: string;
-		rel?: string;
 		dangerouslySetInnerHTML?: Html;
 		children?: any;
-		key?: string;
-		charset?: string;
-		href: string | SVGAnimatedString;
 		[key: `data-${string}`]: string | number | boolean | null | undefined;
 		[key: `aria-${string}`]: string | number | boolean | null | undefined;
-		[key: `on${string}`]: string | ((e: Event) => void);
-	}
->;
+		// deno-lint-ignore ban-types
+		[key: `on${string}`]: string | Function;
+		[key: string]: any;
+	};
 
 export declare namespace JSX {
+	export type Element = JsxElement;
+	export type FC<P extends Props = Props> = Component<P>;
+
 	/** defines valid JSX elements */
 	export type ElementType =
 		| keyof IntrinsicElements
-		| Component<any>;
+		| FC<any>;
 
 	export interface ElementChildrenAttribute {
 		// deno-lint-ignore ban-types
 		children: {};
 	}
+
+	export type IntrinsicAttributes = {
+		key?: string;
+	};
 
 	/** type definitions for intrinsic HTML and SVG elements */
 	export type IntrinsicElements =
