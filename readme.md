@@ -10,7 +10,7 @@ a minimal web framework for deno
 - composable middleware stack with built-in support for CORS, logging, security headers, rate limiting
 - robust file serving featuring ETag caching, `Range` requests, and security options (e.g. dotfile protection)
 - native SSE and WebSockets support
-- built-in precompiled jsx/tsx renderer
+- built-in jsx/tsx renderer
 - multipart file uploads and automatic body parsing
 - global error handling and cookie jar management
 

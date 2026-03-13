@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2025 adoravel
- * SPDX-License-Identifier: LGPL-3.0-or-later
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 import { assertEquals, assertExists } from "jsr:@std/assert@1.0.17";
