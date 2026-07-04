@@ -112,14 +112,14 @@ export class Context<Params = Record<string, string>> {
 
 	/** sends an HTML response */
 	html(content: string, init?: ResponseInit & { autoDoctype?: boolean }): Response {
+		if (init?.autoDoctype !== false && !content.startsWith("<!")) {
+			content = `<!DOCTYPE html>${content}`;
+		}
 		if (!this._cookies?.headers.length && !this._headers) {
 			return new Response(content, {
 				...init,
 				headers: { "Content-Type": "text/html; charset=utf-8", ...init?.headers },
 			});
-		}
-		if (init?.autoDoctype !== false && !content.startsWith("<!")) {
-			content = `<!DOCTYPE html>${content}`;
 		}
 		return this.response(content, "text/html; charset=utf-8", init);
 	}
@@ -136,7 +136,7 @@ export class Context<Params = Record<string, string>> {
 	}
 
 	/** redirects to a different url */
-	redirect(url: string, status?: number): Response {
+	redirect(url: string, status: number = 302): Response {
 		return this.response(null, null, { status, headers: { Location: url } });
 	}
 
