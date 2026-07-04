@@ -87,8 +87,6 @@ export function serializeCookie(
 	value: string,
 	options: CookieOptions = {},
 ): string {
-	let cookie = `${name}=${encodeURIComponent(value)}`;
-
 	if (options.prefix === "host") {
 		name = `__Host-${name}`;
 		options.path = "/";
@@ -98,6 +96,8 @@ export function serializeCookie(
 		name = `__Secure-${name}`;
 		options.secure = true;
 	}
+
+	let cookie = `${name}=${encodeURIComponent(value)}`;
 
 	if (options.expires) {
 		cookie += `; Expires=${options.expires.toUTCString()}`;
