@@ -3,7 +3,7 @@
 	"description": "a minimal web framework for deno",
 	"version": "1.0.0",
 	"license": "Apache-2.0",
-	"workspace": ["./packages/twist", "./packages/varnish"],
+	"workspace": ["./packages/imouto", "./packages/varnish"],
 	"exports": {
 		".": "./src/mod.ts",
 		"./jsx-runtime": "./src/jsx-runtime.ts",

@@ -9,4 +9,4 @@ export * from "./router.ts";
 export * from "./head.ts";
 export * from "./app.ts";
 export * from "./jsx-runtime.ts";
-export * from "@july/varnish";
+export * from "@404/varnish";

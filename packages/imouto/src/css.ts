@@ -4,7 +4,7 @@
  */
 
 import { Context, type JSX, jsx } from "@july/snarl";
-import { markStyleUsed, scopeCss, styleRegistry } from "@july/varnish";
+import { markStyleUsed, scopeCss, styleRegistry } from "@404/varnish";
 import { getContext } from "./context.ts";
 import meowmix0 from "./meowmix0.ts";
 

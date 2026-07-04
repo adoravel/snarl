@@ -1,5 +1,5 @@
 {
-	"name": "@july/varnish",
+	"name": "@404/varnish",
 	"description": "response post-processing middleware for snarl",
 	"version": "0.1.0",
 	"license": "Apache-2.0",

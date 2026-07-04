@@ -23,7 +23,7 @@ jobs:
         run: |
           deno check src/mod.ts
           deno check packages/varnish/src/mod.ts
-          deno check packages/twist/src/mod.ts
+          deno check packages/imouto/src/mod.ts
 
   test:
     runs-on: ubuntu-latest

@@ -9,6 +9,18 @@ on:
       - "packages/twist/src/**"
       - "deno.json"
       - "packages/*/deno.json"
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Package to publish"
+        required: true
+        type: choice
+        options:
+          - all
+          - snarl
+          - varnish
+          - imouto
+        default: "all"
 
 jobs:
   ci:
@@ -16,6 +28,10 @@ jobs:
 
   publish-snarl:
     needs: ci
+    if: |
+      github.event_name == 'push' ||
+      github.event.inputs.package == 'all' ||
+      github.event.inputs.package == 'snarl'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -30,6 +46,10 @@ jobs:
 
   publish-varnish:
     needs: ci
+    if: |
+      github.event_name == 'push' ||
+      github.event.inputs.package == 'all' ||
+      github.event.inputs.package == 'varnish'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -39,12 +59,16 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-      - name: Publish @july/varnish
+      - name: Publish @404/varnish
         working-directory: packages/varnish
         run: deno publish
 
-  publish-twist:
+  publish-imouto:
     needs: ci
+    if: |
+      github.event_name == 'push' ||
+      github.event.inputs.package == 'all' ||
+      github.event.inputs.package == 'imouto'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -54,6 +78,6 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-      - name: Publish @july/twist
-        working-directory: packages/twist
+      - name: Publish @404/imouto
+        working-directory: packages/imouto
         run: deno publish
