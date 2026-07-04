@@ -1,10 +1,5 @@
 /**
- * @module cookie
- * Utilities for parsing, serializing, and managing HTTP Cookies.
- */
-
-/**
- * Copyright (c) 2025 adoravel
+ * Copyright (c) 2025-2026 kylia
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -12,6 +7,12 @@
  * configuration options for setting a cookie
  */
 export interface CookieOptions {
+	/**
+	 * Prepend `__Host-` or `__Secure-` and enforce corresponding attributes:
+	 * - `"host"` sets Path=/, Secure, forbids `Domain`
+	 * - `"secure" sets Secure
+	 */
+	prefix?: "host" | "secure";
 	/**
 	 * the expiration date of the cookie. if omitted, the cookie becomes a session cookie
 	 */
@@ -87,6 +88,16 @@ export function serializeCookie(
 	options: CookieOptions = {},
 ): string {
 	let cookie = `${name}=${encodeURIComponent(value)}`;
+
+	if (options.prefix === "host") {
+		name = `__Host-${name}`;
+		options.path = "/";
+		options.secure = true;
+		delete options.domain;
+	} else if (options.prefix === "secure") {
+		name = `__Secure-${name}`;
+		options.secure = true;
+	}
 
 	if (options.expires) {
 		cookie += `; Expires=${options.expires.toUTCString()}`;
