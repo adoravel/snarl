@@ -212,7 +212,7 @@ function matchRoute(root: TrieNode, pathname: string): MatchResult | null {
 				if (result) return result;
 
 				if (child.optional) {
-					const skipResult = search(node, index + 1, params);
+					const skipResult = search(child, index, params);
 					if (skipResult) return skipResult;
 				}
 			} else if (child.type === NodeType.WILDCARD) {
