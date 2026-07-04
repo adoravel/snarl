@@ -1,0 +1,31 @@
+{
+	"name": "@july/twist",
+	"description": "a minimal full-stack web framework for deno",
+	"version": "0.1.0",
+	"license": "Apache-2.0",
+	"exports": {
+		".": "./src/mod.ts",
+		"./jsx-runtime": "./src/jsx-runtime.ts",
+		"./jsx-dev-runtime": "./src/jsx-runtime.ts"
+	},
+	"imports": {
+		"@july/snarl": "../../src/mod.ts",
+		"@july/varnish": "../varnish/src/mod.ts"
+	},
+	"fmt": {
+		"useTabs": true,
+		"semiColons": true,
+		"lineWidth": 120
+	},
+	"compilerOptions": {
+		"jsx": "react-jsx",
+		"jsxImportSource": "@july/snarl",
+		"lib": ["deno.ns", "dom", "dom.iterable"]
+	},
+	"lint": {
+		"rules": {
+			"tags": ["recommended"],
+			"exclude": ["no-explicit-any"]
+		}
+	}
+}
