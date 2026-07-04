@@ -13,7 +13,7 @@ export type Method = typeof httpMethods[number];
 type ExtractParameterNames<S extends string> = S extends `${string}:${infer Param}/${infer Rest}`
 	? Param | ExtractParameterNames<`/${Rest}`>
 	: S extends `${string}:${infer Param}` ? Param
-	: S extends `${string}/*${infer _Rest}` ? "*"
+	: S extends `${string}/*${infer Name}` ? (Name extends "" ? "*" : Name)
 	: never;
 
 type Skippable<S extends string, T> = S extends `${string}?` ? T | undefined
