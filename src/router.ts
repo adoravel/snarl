@@ -312,7 +312,7 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): HttpRouter
 			metadata?: RouteMetadata,
 		) {
 			const base = extractPattern(path);
-			const pathname = (config.prefix + "/" + base).replace(/\/+/g, "/");
+			const pathname = encodeURI(config.prefix + "/" + base).replace(/\/+/g, "/");
 
 			const pattern = url({ pathname });
 			const route: Route<any> = {
