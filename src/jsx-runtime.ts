@@ -143,7 +143,7 @@ function renderStyle(style: Record<string, string | number>): string {
 }
 
 function renderTrusted(node: unknown): string | Promise<string> {
-	if (typeof node === "string") return node;
+	if (typeof node === "string") return encode(node);
 	if (typeof node === "number") return String(node);
 	if (node == null || node === false || node === true) return "";
 
