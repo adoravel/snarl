@@ -53,31 +53,27 @@ export function compress(options: {
 
 		if (response.headers.has("Content-Encoding") || !response.body) return response;
 
-		const contentType = response.headers.get("Content-Type") ?? "";
-		if (!compressibleTypes.some(contentType.startsWith)) return response;
+		const contentType = response.headers.get("Content-Type");
+		if (!contentType || !compressibleTypes.some((t) => contentType.startsWith(t))) return response;
 
-		const declaredLength = Number(response.headers.get("Content-Length"));
-		if (Number.isFinite(declaredLength) && declaredLength < threshold) return response;
+		const buf = await response.arrayBuffer();
+		if (buf.byteLength < threshold) return response;
 
 		const encoding = pickEncoding(ctx.request.headers.get("Accept-Encoding"), encodings);
 		if (!encoding) return response;
+
+		const input = new Uint8Array(buf);
+		const cs = new CompressionStream(encoding);
+		const writer = cs.writable.getWriter();
+		writer.write(input);
+		writer.close();
 
 		const headers = new Headers(response.headers);
 		headers.set("Content-Encoding", encoding);
 		headers.set("Vary", headers.has("Vary") ? `${headers.get("Vary")}, Accept-Encoding` : "Accept-Encoding");
 		headers.delete("Content-Length");
 
-		const { readable, writable } = new TransformStream();
-		const writer = writable.getWriter();
-		const abortHandler = () => {
-			writer.close().catch(() => {});
-		};
-		ctx.request.signal.addEventListener("abort", abortHandler, { once: true });
-		response.body.pipeTo(writable).finally(() => {
-			ctx.request.signal.removeEventListener("abort", abortHandler);
-		});
-
-		const compressed = readable.pipeThrough(new CompressionStream(encoding));
+		const compressed = await new Response(cs.readable).arrayBuffer();
 		return new Response(compressed, {
 			status: response.status,
 			statusText: response.statusText,
