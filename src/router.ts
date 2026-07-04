@@ -273,8 +273,13 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): HttpRouter
 		httpMethods.map((m) => [m, createTrieRoot()]),
 	) as Record<Method, TrieNode>;
 
-	let requestId = 0;
-	const nextRequestId = () => (++requestId).toString(36);
+	let requestId = crypto.getRandomValues(new Uint32Array(1))[0];
+	const nextRequestId = () => {
+		requestId ^= requestId << 13;
+		requestId ^= requestId >>> 17;
+		requestId ^= requestId << 5;
+		return (requestId >>> 0).toString(36).padStart(6, "0");
+	};
 
 	const middlewares: Middleware[] = [];
 	const config = baseConfig as RouterConfig;
@@ -297,7 +302,7 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): HttpRouter
 		config,
 		use(...mw: (Middleware | Middleware[])[]) {
 			middlewares.push(...mw.flat());
-			return this as HttpRouter;
+			return r as HttpRouter;
 		},
 		on<P extends string | PreciseURLPattern<any> | URLPattern>(
 			method: Method,
@@ -319,7 +324,7 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): HttpRouter
 			routes[method].push(route);
 			insertRoute(tries[method], pathname, handler, route);
 
-			return this;
+			return r;
 		},
 		all<P extends string | PreciseURLPattern<any> | URLPattern>(
 			path: P,
@@ -340,18 +345,13 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): HttpRouter
 
 			for (const method of httpMethods) {
 				for (const route of subRouter.routes[method] ?? []) {
-					const handler = subRouter.middlewares.length > 0
-						? compose(subRouter.middlewares, route.handler)
-						: route.handler;
-
-					const r: Route<any> = {
-						...route,
-						handler: handler,
-					};
-					routes[method].push(r);
+					if (subRouter.middlewares.length > 0) {
+						route.handler = compose(subRouter.middlewares, route.handler);
+					}
+					routes[method].push(route);
 
 					const p = extractPattern(route.pattern);
-					insertRoute(tries[method], p, handler, r);
+					insertRoute(tries[method], p, route.handler, route);
 				}
 			}
 			return r as HttpRouter;
@@ -410,10 +410,10 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): HttpRouter
 		},
 		serve(opts) {
 			opts ??= {} as unknown as typeof opts;
-			if (this.config) {
-				opts!.onListen ??= this.config.onListen;
+			if (r.config) {
+				opts!.onListen ??= r.config?.onListen;
 			}
-			return Deno.serve(opts!, this.fetch!);
+			return Deno.serve(opts!, r.fetch!);
 		},
 	};
 
