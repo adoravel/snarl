@@ -1,0 +1,28 @@
+{
+	"name": "@july/twist",
+	"description": "response post-processing middleware for snarl",
+	"version": "0.1.0",
+	"license": "Apache-2.0",
+	"exports": {
+		".": "./src/mod.ts"
+	},
+	"imports": {
+		"@july/snarl": "../../src/mod.ts",
+		"@minify-html/deno": "jsr:@minify-html/deno@^0.18.1",
+		"@std/path": "jsr:@std/path@^1.1.6"
+	},
+	"fmt": {
+		"useTabs": true,
+		"semiColons": true,
+		"lineWidth": 120
+	},
+	"compilerOptions": {
+		"lib": ["deno.ns", "dom", "dom.iterable"]
+	},
+	"lint": {
+		"rules": {
+			"tags": ["recommended"],
+			"exclude": ["no-explicit-any"]
+		}
+	}
+}
