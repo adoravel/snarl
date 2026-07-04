@@ -1,15 +1,10 @@
 /**
- * @module router
- * The HTTP Router implementation with type-safe path parameters and middleware support.
- */
-
-/**
- * Copyright (c) 2025 adoravel
+ * Copyright (c) 2025-2026 kylia
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { compose, Context, ErrorHandler, Handler, Middleware } from "./middleware.ts";
-import { HttpError, httpMethods, Method, ParametersOf, PreciseURLPattern, ReplaceReturnType } from "./utils.ts";
+import { compose, Context, ErrorHandler, Handler, Middleware } from "@july/snarl";
+import { HttpError, httpMethods, Method, ParametersOf, PreciseURLPattern, ReplaceReturnType, url } from "./utils.ts";
 
 export interface Route<P extends string> {
 	readonly pattern: PreciseURLPattern<P>;
@@ -38,6 +33,7 @@ interface RouterConfig {
 	prefix?: string;
 	onError: ErrorHandler;
 	onNotFound: ReplaceReturnType<Handler<Record<PropertyKey, never>>, Response | Promise<Response>>;
+	onListen?: Parameters<typeof Deno.serve>[0]["onListen"];
 }
 
 interface Router {
@@ -45,7 +41,7 @@ interface Router {
 	middlewares: Middleware[];
 	config: RouterConfig;
 
-	use: (...middlewares: Middleware[]) => this;
+	use: (...middlewares: (Middleware | Middleware[])[]) => this;
 
 	on<P extends string | PreciseURLPattern<any> | URLPattern>(
 		method: Method,
@@ -54,7 +50,7 @@ interface Router {
 		metadata?: RouteMetadata,
 	): void;
 
-	group(prefix: string, configure: (router: ExtendedRouter) => void): this;
+	group(prefix: string, configure: (router: HttpRouter) => void): this;
 
 	fetch(
 		request: Request,
@@ -66,12 +62,14 @@ interface Router {
 		pattern: Route<any>["pattern"];
 		metadata?: RouteMetadata;
 	}>;
+
+	serve(options?: Parameters<typeof Deno.serve>[0]): ReturnType<typeof Deno.serve>;
 }
 
 /**
- * the extended router interface that includes convenience methods (`GET`, `POST`, etc.).
+ * the extended router interface that includes convenience methods (`GET`, `POST`, etc.)
  */
-type ExtendedRouter =
+type HttpRouter =
 	& Router
 	& {
 		[M in Method as Lowercase<M>]: <
@@ -84,7 +82,7 @@ type ExtendedRouter =
 	}
 	& {
 		/**
-		 * registers a handler for all supported HTTP methods.
+		 * registers a handler for all supported HTTP methods
 		 */
 		all<P extends string | PreciseURLPattern<any> | URLPattern>(
 			path: P,
@@ -130,8 +128,9 @@ function parsePattern(pattern: string): Array<{ type: NodeType; segment: string;
 	for (let i = 0; i < parts.length; i++) {
 		const part = parts[i];
 
-		if (part === "*") {
-			segments.push({ type: NodeType.WILDCARD, segment: "*", optional: false });
+		if (part.startsWith("*")) {
+			const paramName = part.length > 1 ? part.slice(1) : "*";
+			segments.push({ type: NodeType.WILDCARD, segment: paramName, optional: false });
 			break;
 		} else if (part.startsWith(":")) {
 			const optional = part.endsWith("?");
@@ -171,37 +170,9 @@ function insertRoute(root: TrieNode, pattern: string, handler: Handler<any>, rou
 	node.route = route;
 }
 
-function matchStatic(node: TrieNode, segments: string[], index: number): MatchResult | null {
-	if (index >= segments.length) {
-		return node.handler && node.route ? { handler: node.handler, params: {}, route: node.route } : null;
-	}
-
-	const segment = segments[index];
-
-	for (let i = 0; i < node.children.length; i++) {
-		const child = node.children[i];
-		if (child.type === NodeType.STATIC && child.segment === segment) {
-			return matchStatic(child, segments, index + 1);
-		}
-	}
-
-	return null;
-}
-
-function decodeParams(params: Record<string, string>): void {
-	for (const key in params) {
-		const value = params[key];
-		if (value.indexOf("%") !== -1) {
-			try {
-				params[key] = decodeURIComponent(value);
-			} catch (err) {
-				console.warn(`failed to decode param "${key}": ${err}`);
-			}
-		}
-	}
-}
-
 function matchRoute(root: TrieNode, pathname: string): MatchResult | null {
+	pathname = pathname.replace(/\/+/g, "/");
+
 	if (pathname === "/" || pathname === "") {
 		return root.handler ? { handler: root.handler, params: {}, route: root.route! } : null;
 	}
@@ -209,24 +180,18 @@ function matchRoute(root: TrieNode, pathname: string): MatchResult | null {
 	const path = pathname.replace(/^\/+|\/+$/g, "");
 	const segments = path.split("/");
 
-	const $static = matchStatic(root, segments, 0);
-	if ($static) return $static;
-
-	let requiresDecoding = false;
-
 	function search(node: TrieNode, index: number, params: Record<string, string>): MatchResult | null {
 		if (index >= segments.length) {
 			if (node.handler && node.route) {
 				return { handler: node.handler, params, route: node.route };
 			}
-
 			for (const child of node.children) {
-				if (child.optional && child.handler && child.route) {
-					return { handler: child.handler, params, route: child.route };
+				if (child.optional) {
+					const result = search(child, index, params);
+					if (result) return result;
 				}
 				if (child.type === NodeType.WILDCARD && child.handler && child.route) {
-					const newParams = { ...params, [child.paramName || "*"]: "" };
-					return { handler: child.handler, params: newParams, route: child.route };
+					return { handler: child.handler, params: { ...params, [child.paramName || "*"]: "" }, route: child.route };
 				}
 			}
 			return null;
@@ -241,8 +206,6 @@ function matchRoute(root: TrieNode, pathname: string): MatchResult | null {
 					if (result) return result;
 				}
 			} else if (child.type === NodeType.PARAM) {
-				if (segment.indexOf("%") !== -1) requiresDecoding = true;
-
 				const newParams = { ...params, [child.paramName!]: segment };
 				const result = search(child, index + 1, newParams);
 				if (result) return result;
@@ -261,11 +224,29 @@ function matchRoute(root: TrieNode, pathname: string): MatchResult | null {
 	}
 
 	const result = search(root, 0, {});
+	if (!result) return null;
 
-	if (result && requiresDecoding) {
-		decodeParams(result.params);
+	return { ...result, params: decodeParamsIfNeeded(result.params) };
+}
+
+function decodeParamsIfNeeded(params: Record<string, string>): Record<string, string> {
+	let needsDecode = false;
+	for (const key in params) {
+		if (params[key].indexOf("%") !== -1) {
+			needsDecode = true;
+			break;
+		}
 	}
-	return result;
+	if (!needsDecode) return params;
+	const decoded: Record<string, string> = {};
+	for (const key in params) {
+		try {
+			decoded[key] = decodeURIComponent(params[key]);
+		} catch {
+			decoded[key] = params[key];
+		}
+	}
+	return decoded;
 }
 
 function createTrieRoot(): TrieNode {
@@ -282,7 +263,7 @@ const EMPTY_200 = new Response(null, { status: 200 });
  * creates a new `Router` instance
  * @param baseConfig optional configuration for the router
  */
-export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRouter {
+export function createRouter(baseConfig: Partial<RouterConfig> = {}): HttpRouter {
 	const routes = Object.fromEntries(httpMethods.map((m) => [m, []])) as unknown as Record<
 		Method,
 		Route<any>[]
@@ -310,18 +291,24 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRo
 			{ status: 404 },
 		);
 
-	const r: Partial<ExtendedRouter> = {
+	const r: Partial<HttpRouter> = {
 		routes,
 		middlewares,
 		config,
-		use(...mw) {
-			middlewares.push(...mw);
-			return r as ExtendedRouter;
+		use(...mw: (Middleware | Middleware[])[]) {
+			middlewares.push(...mw.flat());
+			return this as HttpRouter;
 		},
-		on(method, path, handler, metadata) {
-			const pathname = typeof path === "string" ? (config.prefix + path) : path;
-			const pattern = typeof pathname !== "string" ? pathname : new URLPattern({ pathname }) as any;
+		on<P extends string | PreciseURLPattern<any> | URLPattern>(
+			method: Method,
+			path: P,
+			handler: Handler<Params<P>>,
+			metadata?: RouteMetadata,
+		) {
+			const base = extractPattern(path);
+			const pathname = (config.prefix + "/" + base).replace(/\/+/g, "/");
 
+			const pattern = url({ pathname });
 			const route: Route<any> = {
 				method,
 				pattern,
@@ -330,9 +317,7 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRo
 			};
 
 			routes[method].push(route);
-
-			const p = extractPattern(pattern);
-			insertRoute(tries[method], p, handler, route);
+			insertRoute(tries[method], pathname, handler, route);
 
 			return this;
 		},
@@ -344,12 +329,12 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRo
 			for (const method of httpMethods) {
 				r.on!(method, path, handler, metadata);
 			}
-			return r as ExtendedRouter;
+			return r as HttpRouter;
 		},
 		group(prefix, configure) {
 			const subRouter = createRouter({
 				...config,
-				prefix: config.prefix + prefix,
+				prefix: (config.prefix + prefix).replace(/\/+/g, "/"),
 			});
 			configure(subRouter);
 
@@ -369,7 +354,7 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRo
 					insertRoute(tries[method], p, handler, r);
 				}
 			}
-			return r as ExtendedRouter;
+			return r as HttpRouter;
 		},
 		allRoutes() {
 			return httpMethods.flatMap((method) =>
@@ -381,18 +366,17 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRo
 			);
 		},
 		async fetch(request, info): Promise<Response> {
-			let method = request.method.toUpperCase() as Method;
+			const method = request.method.toUpperCase() as Method;
 			const requestId = nextRequestId();
 
-			if (method === "HEAD" && routes["HEAD"].length === 0) {
-				method = "GET";
+			const url = new URL(request.url);
+			let match = matchRoute(tries[method], url.pathname);
+			if (!match && method === "HEAD") {
+				match = matchRoute(tries["GET"], url.pathname);
 			}
 
 			let ctx: Context<any> | null = null;
-			const url = new URL(request.url);
 			try {
-				const match = matchRoute(tries[method], url.pathname);
-
 				ctx = new Context(
 					request,
 					url,
@@ -424,6 +408,13 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRo
 				return await config.onError(err as Error, ctx);
 			}
 		},
+		serve(opts) {
+			opts ??= {} as unknown as typeof opts;
+			if (this.config) {
+				opts!.onListen ??= this.config.onListen;
+			}
+			return Deno.serve(opts!, this.fetch!);
+		},
 	};
 
 	httpMethods.forEach(
@@ -436,7 +427,8 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): ExtendedRo
 			) => r.on!(method as Method, path, handler, metadata);
 		},
 	);
-	return r as ExtendedRouter;
+
+	return r as HttpRouter;
 }
 
-export type { ExtendedRouter as Router };
+export type { HttpRouter as Router };

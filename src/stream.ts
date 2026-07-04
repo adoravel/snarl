@@ -1,14 +1,9 @@
 /**
- * @module stream
- * Utilities for Server-Sent Events (SSE), WebSockets, and generic streaming responses.
- */
-
-/**
- * Copyright (c) 2025 adoravel
+ * Copyright (c) 2025-2026 kylia
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Context } from "./middleware.ts";
+import { Context } from "./context.ts";
 
 /**
  * represents a message sent over server-sent events
@@ -24,47 +19,69 @@ export interface SSEMessage {
 	retry?: number;
 }
 
+function abortableStream<T>(
+	ctx: Context,
+	iterable: AsyncIterable<T>,
+	onChunk: (controller: ReadableStreamDefaultController<Uint8Array>, value: T) => void,
+): ReadableStream<Uint8Array> {
+	return new ReadableStream({
+		async start(controller) {
+			let closed = false;
+			const iterator = iterable[Symbol.asyncIterator]();
+
+			const onAbort = () => {
+				closed = true;
+				try {
+					controller.close();
+				} catch { /* no-op */ }
+			};
+			ctx.request.signal.addEventListener("abort", onAbort);
+
+			try {
+				while (!closed && !ctx.request.signal.aborted) {
+					const { done, value } = await iterator.next();
+					if (done) break;
+					onChunk(controller, value);
+				}
+				if (!closed) controller.close();
+			} catch (error) {
+				if (!closed) controller.error(error);
+			} finally {
+				ctx.request.signal.removeEventListener("abort", onAbort);
+				try {
+					await iterator.return?.(undefined);
+				} catch { /* no-op */ }
+			}
+		},
+	});
+}
+
 /**
  * creates a `Response` that streams server-sent events
+ * @param ctx the request context
  * @param source an async iterable or a function returning one
  * @param init optional `ResponseInit` body.
  */
 export function sse(
+	ctx: Context,
 	source: AsyncIterable<SSEMessage> | (() => AsyncIterable<SSEMessage>),
 	init?: ResponseInit,
 ): Response {
 	const encoder = new TextEncoder();
 	const iterable = typeof source === "function" ? source() : source;
 
-	const stream = new ReadableStream({
-		async start(controller) {
-			try {
-				for await (const message of iterable) {
-					let chunk = "";
+	const stream = abortableStream(ctx, iterable, (controller, message) => {
+		let chunk = "";
+		if (message.event) chunk += `event: ${message.event}\n`;
+		if (message.id) chunk += `id: ${message.id}\n`;
+		if (message.retry) chunk += `retry: ${message.retry}\n`;
 
-					if (message.event) {
-						chunk += `event: ${message.event}\n`;
-					}
-					if (message.id) {
-						chunk += `id: ${message.id}\n`;
-					}
-					if (message.retry) {
-						chunk += `retry: ${message.retry}\n`;
-					}
+		for (const line of message.data.split("\n")) {
+			chunk += `data: ${line}\n`;
+		}
+		chunk += "\n";
 
-					const lines = message.data.split("\n");
-					for (const line of lines) {
-						chunk += `data: ${line}\n`;
-					}
-
-					chunk += "\n"; // eoi
-					controller.enqueue(encoder.encode(chunk));
-				}
-				controller.close();
-			} catch (error) {
-				controller.error(error);
-			}
-		},
+		controller.enqueue(encoder.encode(chunk));
 	});
 
 	return new Response(stream, {
@@ -115,24 +132,22 @@ export function upgradeWebSocket(
 			handler.onOpen!(socket);
 		});
 	}
-
 	if (handler.onMessage) {
 		socket.addEventListener("message", (event) => {
 			handler.onMessage!(socket, event);
 		});
 	}
-
 	if (handler.onClose) {
 		socket.addEventListener("close", (event) => {
 			handler.onClose!(socket, event);
 		});
 	}
-
 	if (handler.onError) {
 		socket.addEventListener("error", (event) => {
 			handler.onError!(socket, event);
 		});
 	}
+
 	return response;
 }
 
@@ -142,24 +157,15 @@ export function upgradeWebSocket(
  * @param init optional `ResponseInit` body
  */
 export function stream(
-	source: AsyncIterable<string | Uint8Array> | (() => AsyncIterable<string | Uint8Array>),
+	ctx: Context,
+	source: AsyncIterable<Uint8Array> | (() => AsyncIterable<Uint8Array>),
 	init?: ResponseInit,
 ): Response {
 	const encoder = new TextEncoder();
 	const iterable = typeof source === "function" ? source() : source;
 
-	const readable = new ReadableStream({
-		async start(controller) {
-			try {
-				for await (const chunk of iterable) {
-					const data = typeof chunk === "string" ? encoder.encode(chunk) : chunk;
-					controller.enqueue(data);
-				}
-				controller.close();
-			} catch (error) {
-				controller.error(error);
-			}
-		},
+	const readable = abortableStream(ctx, iterable, (controller, chunk) => {
+		controller.enqueue(typeof chunk === "string" ? encoder.encode(chunk) : chunk);
 	});
 
 	return new Response(readable, init);
