@@ -7,7 +7,6 @@
 		".": "./src/mod.ts"
 	},
 	"imports": {
-		"@july/snarl": "../../src/mod.ts",
 		"@minify-html/deno": "jsr:@minify-html/deno@^0.18.1",
 		"@std/path": "jsr:@std/path@^1.1.6"
 	},

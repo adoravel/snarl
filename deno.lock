@@ -16,8 +16,7 @@
     "jsr:@std/net@^1.0.6": "1.0.6",
     "jsr:@std/path@^1.1.4": "1.1.6",
     "jsr:@std/path@^1.1.6": "1.1.6",
-    "jsr:@std/streams@^1.1.1": "1.1.1",
-    "npm:alien-signals@^3.1.2": "3.1.2"
+    "jsr:@std/streams@^1.1.1": "1.1.1"
   },
   "jsr": {
     "@minify-html/deno@0.18.1": {
@@ -84,11 +83,6 @@
       "integrity": "92556d350e537e9dce527a6d08f6f15be3ff65e656079dea69d15252187c7613"
     }
   },
-  "npm": {
-    "alien-signals@3.1.2": {
-      "integrity": "sha512-d9dYqZTS90WLiU0I5c6DHj/HcKkF8ZyGN3G5x8wSbslulz70KOxaqCT0hQCo9KOyhVqzqGojvNdJXoTumZOtcw=="
-    }
-  },
   "redirects": {
     "https://deno.land/std/fs/walk.ts": "https://deno.land/std@0.224.0/fs/walk.ts"
   },
@@ -144,14 +138,7 @@
       "jsr:@std/path@^1.1.6"
     ],
     "members": {
-      "packages/twist": {
-        "dependencies": [
-          "npm:alien-signals@^3.1.2"
-        ]
-      }
-    },
-    "links": {
-      "jsr:@july/twist@0.1.0": {
+      "packages/varnish": {
         "dependencies": [
           "jsr:@minify-html/deno@~0.18.1",
           "jsr:@std/path@^1.1.6"

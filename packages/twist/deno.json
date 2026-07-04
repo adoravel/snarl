@@ -8,10 +8,6 @@
 		"./jsx-runtime": "./src/jsx-runtime.ts",
 		"./jsx-dev-runtime": "./src/jsx-runtime.ts"
 	},
-	"imports": {
-		"@july/snarl": "../../src/mod.ts",
-		"@july/varnish": "../varnish/src/mod.ts"
-	},
 	"fmt": {
 		"useTabs": true,
 		"semiColons": true,
