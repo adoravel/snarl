@@ -1,21 +1,59 @@
 name: Publish
+
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+    paths:
+      - "src/**"
+      - "packages/varnish/src/**"
+      - "packages/twist/src/**"
+      - "deno.json"
+      - "packages/*/deno.json"
 
 jobs:
-  publish:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  publish-snarl:
+    needs: ci
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v5
-      - name: Install Deno
-        uses: denoland/setup-deno@v2
+      - uses: actions/checkout@v7
+      - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-          cache: true
-      - name: Publish package
+      - name: Publish @july/snarl
+        run: deno publish
+
+  publish-varnish:
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Publish @july/varnish
+        working-directory: packages/varnish
+        run: deno publish
+
+  publish-twist:
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Publish @july/twist
+        working-directory: packages/twist
         run: deno publish
