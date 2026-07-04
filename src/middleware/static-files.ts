@@ -4,9 +4,10 @@
  */
 
 import { Middleware } from "../context.ts";
-import { getContentType, HttpError } from "../utils.ts";
+import { getContentType } from "../mime.ts";
 import { extname, join, relative, resolve } from "@std/path";
 import { encodeHex } from "@std/encoding/hex";
+import { HttpError } from "../errors.ts";
 
 function weakEtag(stat: Deno.FileInfo): string {
 	const mtime = stat.mtime?.getTime() ?? 0;

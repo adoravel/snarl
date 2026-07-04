@@ -7,14 +7,14 @@ import { CookieJar } from "./cookie.ts";
 import {
 	BadRequestError,
 	ForbiddenError,
-	getContentType,
 	HttpError,
 	InternalServerError,
 	NotFoundError,
 	TooManyRequestsError,
 	UnauthorizedError,
-} from "./utils.ts";
+} from "./errors.ts";
 import { extname, resolve } from "@std/path";
+import { getContentType } from "./mime.ts";
 
 /** represents a file uploaded via `multipart/form-data` */
 export interface UploadedFile {

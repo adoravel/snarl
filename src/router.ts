@@ -4,7 +4,8 @@
  */
 
 import { compose, Context, ErrorHandler, Handler, Middleware } from "@july/snarl";
-import { HttpError, httpMethods, Method, ParametersOf, PreciseURLPattern, ReplaceReturnType, url } from "./utils.ts";
+import { httpMethods, Method, ParametersOf, PreciseURLPattern, ReplaceReturnType, url } from "./types.ts";
+import { HttpError } from "./errors.ts";
 
 export interface Route<P extends string> {
 	readonly pattern: PreciseURLPattern<P>;

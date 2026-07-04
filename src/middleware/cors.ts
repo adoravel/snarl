@@ -4,7 +4,7 @@
  */
 
 import { Middleware } from "../context.ts";
-import { httpMethods } from "../utils.ts";
+import { httpMethods } from "../types.ts";
 
 /**
  * Middleware to handle Cross-Origin Resource Sharing (CORS).
