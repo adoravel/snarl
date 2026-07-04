@@ -62,8 +62,8 @@ export function parseCookies(header: string | null): Record<string, string> {
 
 		if (idx === -1) continue;
 
-		const name = trimmed.slice(0, idx);
-		const value = trimmed.slice(idx + 1);
+		const name = trimmed.slice(0, idx).trim();
+		const value = trimmed.slice(idx + 1).trim();
 
 		try {
 			cookies[name] = decodeURIComponent(value);
