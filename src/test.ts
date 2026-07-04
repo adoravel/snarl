@@ -1,12 +1,12 @@
 /**
- * Copyright (c) 2025 adoravel
+ * Copyright (c) 2025-2026 kylia
  * SPDX-License-Identifier: Apache-2.0
  */
 
 import { assertEquals, assertExists } from "jsr:@std/assert@1.0.17";
 import { CookieJar, serializeCookie } from "./cookie.ts";
 import { createRouter } from "./router.ts";
-import { formParser, jsonParser, rateLimit, staticFiles } from "./middleware.ts";
+import { formParser, jsonParser, rateLimit, staticFiles } from "./middleware/mod.ts";
 import { NotFoundError, TooManyRequestsError } from "./utils.ts";
 
 const mockInfo = { remoteAddr: { hostname: "127.0.0.1" } } as Deno.ServeHandlerInfo<Deno.NetAddr>;
