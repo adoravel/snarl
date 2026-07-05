@@ -20,8 +20,8 @@ const cfg = {
 		/copyright\.ts$/,
 		/meowmix(0|1)\.ts$/,
 		/(generate|loc)\.ts$/,
-		/bench\//,
-		/static\//,
+		/benchmarks\//,
+		/(static|assets)\//,
 	],
 };
 

@@ -1,9 +1,5 @@
-/**
- * Copyright (c) 2025 adoravel
- * SPDX-License-Identifier: LGPL-3.0-or-later
- */
-
 import { createRouter } from "@july/snarl";
+import { largePayload } from "./fixtures.ts";
 
 const app = createRouter();
 
@@ -25,6 +21,15 @@ app.get("/user/:id/todos/:todoId", (ctx) => {
 
 app.get("/search", (ctx) => {
 	return ctx.json({ term: ctx.url.searchParams.get("term") });
+});
+
+app.post("/echo", async (ctx) => {
+	const body = await ctx.body.json();
+	return ctx.json(body);
+});
+
+app.get("/json/large", (ctx) => {
+	return ctx.json(largePayload);
 });
 
 export default app.fetch;

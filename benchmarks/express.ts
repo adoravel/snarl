@@ -4,8 +4,10 @@
  */
 
 import express from "express";
+import { largePayload } from "./fixtures.ts";
 
 const app = express();
+app.use(express.json());
 
 app.get("/health", (_req, res) => {
 	res.type("text/plain").send("express");
@@ -27,6 +29,14 @@ app.get("/user/:id/todos/:todoId", (req, res) => {
 app.get("/search", (req, res) => {
 	const { term } = req.query;
 	res.json({ term });
+});
+
+app.post("/echo", (req, res) => {
+	res.json(req.body);
+});
+
+app.get("/json/large", (_req, res) => {
+	res.json(largePayload);
 });
 
 export default app;

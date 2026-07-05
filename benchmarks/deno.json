@@ -1,0 +1,30 @@
+{
+	"tasks": {
+		"start": "deno run --allow-run --allow-env --allow-net --allow-write mod.ts",
+		"quick": "deno run --allow-run --allow-env --allow-net --allow-write mod.ts --quick",
+		"generate": "deno run --allow-read --allow-env generate.ts"
+	},
+	"compilerOptions": {
+		"noImplicitAny": false
+	},
+	"fmt": {
+		"useTabs": true,
+		"semiColons": true,
+		"lineWidth": 120
+	},
+	"imports": {
+		"@cliffy/table": "jsr:@cliffy/table@^1.2.1",
+		"@std/fmt": "jsr:@std/fmt@^1.0.10",
+		"@cliffy/table": "jsr:@cliffy/table@^1.0.0",
+		"@july/snarl": "jsr:@july/snarl@^1.0.0",
+		"@oak/oak": "jsr:@oak/oak@^17.2.0",
+		"express": "npm:express@^5.2.1",
+		"hono": "jsr:@hono/hono@^4.12.27"
+	},
+	"lint": {
+		"rules": {
+			"tags": ["recommended"],
+			"exclude": ["no-explicit-any"]
+		}
+	}
+}

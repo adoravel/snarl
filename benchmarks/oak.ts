@@ -4,6 +4,7 @@
  */
 
 import { Application, Router } from "@oak/oak";
+import { largePayload } from "./fixtures.ts";
 
 const router = new Router();
 
@@ -27,6 +28,14 @@ router.get("/user/:id/todos/:todoId", (ctx) => {
 router.get("/search", (ctx) => {
 	const term = ctx.request.url.searchParams.get("term");
 	ctx.response.body = { term };
+});
+
+router.post("/echo", async (ctx) => {
+	ctx.response.body = await ctx.request.body.json();
+});
+
+router.get("/json/large", (ctx) => {
+	ctx.response.body = largePayload;
 });
 
 const oak = new Application();
