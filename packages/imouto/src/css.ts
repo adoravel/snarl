@@ -167,7 +167,7 @@ function createScopedStyles(src: string, hashFn: CssConfig["hash"]): ScopedStyle
 }
 
 export interface CssTag {
-    (strings: TemplateStringsArray, ...values: unknown[]): ScopedStyleSheet;
+	(strings: TemplateStringsArray, ...values: unknown[]): ScopedStyleSheet;
 }
 
 export function createStyles(config: CssConfig = { hash: meowmix0 }): { css: CssTag; styled: StyledFactory } {
