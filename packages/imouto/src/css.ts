@@ -136,7 +136,9 @@ function createScopedStyles(src: string, hashFn: CssConfig["hash"]): ScopedStyle
 					(acc, str, i) => acc + str + (values[i] ?? ""),
 					"",
 				).trim();
-				return createStyledComponent(tag, `${src} ${additional}`, scope);
+				const combined = `${src} ${additional}`;
+				const scope$styled = hashFn(combined);
+				return createStyledComponent(tag, combined, scope$styled);
 			};
 		},
 	});
