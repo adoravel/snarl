@@ -146,8 +146,15 @@
       "jsr:@std/path@^1.1.6"
     ],
     "members": {
+      "packages/imouto": {
+        "dependencies": [
+          "jsr:@404/varnish@0.1",
+          "jsr:@july/snarl@1"
+        ]
+      },
       "packages/varnish": {
         "dependencies": [
+          "jsr:@july/snarl@1",
           "jsr:@minify-html/deno@~0.18.1",
           "jsr:@std/path@^1.1.6"
         ]

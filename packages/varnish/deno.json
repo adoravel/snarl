@@ -1,14 +1,15 @@
 {
 	"name": "@404/varnish",
 	"description": "response post-processing middleware for snarl",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"license": "Apache-2.0",
 	"exports": {
 		".": "./src/mod.ts"
 	},
 	"imports": {
 		"@minify-html/deno": "jsr:@minify-html/deno@^0.18.1",
-		"@std/path": "jsr:@std/path@^1.1.6"
+		"@std/path": "jsr:@std/path@^1.1.6",
+		"@july/snarl": "jsr:@july/snarl@^1.0.0"
 	},
 	"fmt": {
 		"useTabs": true,

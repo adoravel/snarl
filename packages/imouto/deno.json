@@ -1,7 +1,7 @@
 {
 	"name": "@404/imouto",
 	"description": "a minimal full-stack web framework for deno",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"license": "Apache-2.0",
 	"exports": {
 		".": "./src/mod.ts",
@@ -12,6 +12,10 @@
 		"useTabs": true,
 		"semiColons": true,
 		"lineWidth": 120
+	},
+	"imports": {
+		"@july/snarl": "jsr:@july/snarl@^1.0.0",
+		"@404/varnish": "jsr:@404/varnish@^0.1.0"
 	},
 	"compilerOptions": {
 		"jsx": "react-jsx",
