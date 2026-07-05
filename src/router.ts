@@ -64,7 +64,7 @@ interface Router {
 		metadata?: RouteMetadata;
 	}>;
 
-	serve(options?: Parameters<typeof Deno.serve>[0]): ReturnType<typeof Deno.serve>;
+	serve(options?: Deno.ServeTcpOptions): ReturnType<typeof Deno.serve>;
 }
 
 /**
