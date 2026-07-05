@@ -9,7 +9,7 @@
 	"imports": {
 		"@minify-html/deno": "jsr:@minify-html/deno@^0.18.1",
 		"@std/path": "jsr:@std/path@^1.1.6",
-		"@july/snarl": "jsr:@july/snarl@^1.0.0"
+		"@july/snarl": "jsr:@july/snarl@^1.0.1"
 	},
 	"fmt": {
 		"useTabs": true,
