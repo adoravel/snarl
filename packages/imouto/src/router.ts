@@ -127,40 +127,45 @@ async function scanDir(
 	const meta: RootRouteMetadata = { middlewares: [] };
 	metas.set(root, meta);
 
+	const subdirs: string[] = [];
+	const routes: string[] = [];
+	const special: string[] = [];
+
 	for await (const entry of Deno.readDir(root)) {
 		const file = join(root, entry.name);
 
 		if (entry.isDirectory) {
-			await scanDir(base, file, entries, metas, verbose);
+			subdirs.push(file);
 			continue;
 		}
-
 		if (!entry.name.match(/\.tsx?$/)) continue;
-
-		const rel = relative(base, file);
-		const module$path = import.meta.resolve(toFileUrl(file).href);
-
 		if (entry.name.startsWith("_")) {
-			if (entry.name.match(/^_layout\.tsx?$/)) {
-				meta.layout = await import(module$path);
-				continue;
-			}
-			if (entry.name.match(/^_middleware\.tsx?$/)) {
-				const mod: MiddlewareModule = await import(module$path);
-				const mw = mod.default;
-				meta.middlewares.push(...(Array.isArray(mw) ? mw : [mw]));
-				continue;
-			}
-			if (entry.name.match(/^_error\.tsx?$/)) {
-				meta.errorBoundary = await import(module$path);
-				continue;
-			}
-			continue; // skip unrelated shi
+			special.push(file);
+		} else {
+			routes.push(file);
 		}
+	}
 
+	await Promise.all(special.map(async (file) => {
+		const entry = file.split("/").pop()!;
+
+		if (entry.match(/^_layout\.tsx?$/)) {
+			meta.layout = await import(toFileUrl(file).href);
+		} else if (entry.match(/^_middleware\.tsx?$/)) {
+			const mod: MiddlewareModule = await import(toFileUrl(file).href);
+			const mw = mod.default;
+			meta.middlewares.push(...(Array.isArray(mw) ? mw : [mw]));
+		} else if (entry.match(/^_error\.tsx?$/)) {
+			meta.errorBoundary = await import(toFileUrl(file).href);
+		}
+	}));
+
+	await Promise.all(routes.map(async (file) => {
+		const rel = relative(base, file);
 		const importStart = performance.now();
-		const module = await import(module$path);
+		const module = await import(toFileUrl(file).href);
 		const importTime = performance.now() - importStart;
+
 		entries.push({
 			path: makeRoutePath(rel),
 			fsPath: file,
@@ -170,6 +175,10 @@ async function scanDir(
 		if (verbose) {
 			console.log(dim(`  ↓ imported ${rel} in ${importTime.toFixed(2)}ms`));
 		}
+	}));
+
+	for (const dir of subdirs) {
+		await scanDir(base, dir, entries, metas, verbose);
 	}
 }
 
@@ -228,6 +237,35 @@ export interface ScanOptions {
 	verbose?: boolean;
 }
 
+function registerRoute(
+	router: Router,
+	method: Method,
+	path: string,
+	handler: RouteHandler,
+	layouts: LayoutModule[],
+	middlewares: Middleware[],
+	errorBoundary: ErrorModule | undefined,
+	fsPath: string,
+	base: string,
+	registered: Set<string>,
+	verbose: boolean,
+): void {
+	const key = `${method}:${path}`;
+	const routeStart = performance.now();
+
+	const wrapped = wrapHandler(handler, layouts, errorBoundary);
+	const final = middlewares.length ? compose(middlewares, wrapped) : wrapped;
+	(router as any)[method.toLowerCase()](path, final);
+
+	if (verbose && !registered.has(key)) {
+		const routeTime = performance.now() - routeStart;
+		registered.add(key);
+		console.log(
+			`    ${formatRoute(method, path)} ${formatRouteFile(relative(base, fsPath))} ${dim(`${routeTime.toFixed(2)}ms`)}`,
+		);
+	}
+}
+
 /**
  * scans a directory for route files and registers them on the given router.
  * routes are sorted by specificity so more specific paths take precedence
@@ -271,39 +309,22 @@ export async function scanRoutes(
 		const errorBoundary = [...ancestors].findLast((m) => m.errorBoundary)?.errorBoundary;
 
 		for (const method of httpMethods) {
-			const handler = module[method];
+			const handler = module[method] ?? (method === "GET" ? module.default : undefined);
 			if (!handler) continue;
 
-			const routeStart = performance.now();
-			const wrapped = wrapHandler(handler, layouts, errorBoundary);
-			const final = middlewares.length ? compose(middlewares, wrapped) : wrapped;
-			(router as any)[method.toLowerCase()](path, final);
-
-			if (verbose && !registered.has(`${method}:${path}`)) {
-				const routeTime = performance.now() - routeStart;
-				registered.add(`${method}:${path}`);
-				console.log(
-					`    ${formatRoute(method, path)} ${formatRouteFile(relative(base, fsPath))} ${
-						dim(`${routeTime.toFixed(2)}ms`)
-					}`,
-				);
-			}
-		}
-
-		if (module.default && !module.GET) {
-			const routeStart = performance.now();
-			const wrapped = wrapHandler(module.default, layouts, errorBoundary);
-			const final = middlewares.length ? compose(middlewares, wrapped) : wrapped;
-			router.get(path, final);
-			if (verbose && !registered.has(`GET:${path}`)) {
-				const routeTime = performance.now() - routeStart;
-				registered.add(`GET:${path}`);
-				console.log(
-					`    ${formatRoute("GET", path)} ${formatRouteFile(relative(base, fsPath))} ${
-						dim(`${routeTime.toFixed(2)}ms`)
-					}`,
-				);
-			}
+			registerRoute(
+				router,
+				method,
+				path,
+				handler,
+				layouts,
+				middlewares,
+				errorBoundary,
+				fsPath,
+				base,
+				registered,
+				verbose,
+			);
 		}
 	}
 
