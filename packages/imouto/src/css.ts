@@ -166,7 +166,11 @@ function createScopedStyles(src: string, hashFn: CssConfig["hash"]): ScopedStyle
 	return componentProxy as ScopedStyleSheet;
 }
 
-export function createStyles(config: CssConfig = { hash: meowmix0 }): { css: typeof cssTag; styled: StyledFactory } {
+export interface CssTag {
+    (strings: TemplateStringsArray, ...values: unknown[]): ScopedStyleSheet;
+}
+
+export function createStyles(config: CssConfig = { hash: meowmix0 }): { css: CssTag; styled: StyledFactory } {
 	function cssTag(strings: TemplateStringsArray, ...values: unknown[]): ScopedStyleSheet {
 		const src = strings.reduce<string>(
 			(acc, str, i) => acc + str + (values[i] ?? ""),
