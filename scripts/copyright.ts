@@ -3,10 +3,16 @@
 import { walk } from "https://deno.land/std/fs/walk.ts";
 import { bold, cyan, dim, green, red, yellow } from "@std/fmt/colors";
 
-const CONFIG = {
+const cfg = {
+	project: "snarl",
 	author: "kylia",
 	license: "Apache-2.0",
-	currentYear: new Date().getFullYear(),
+	get licenseLine() {
+		return `SPDX-License-Identifier: ${this.license}`;
+	},
+	yearRange: `2025-${new Date().getFullYear()}`,
+	preferredStyle: "jsdoc" as "jsdoc" | "slash",
+	description: "a minimal web framework for deno",
 	extensions: [".ts", ".tsx"],
 	skip: [
 		/node_modules/,
@@ -19,53 +25,65 @@ const CONFIG = {
 	],
 };
 
-const JSDOC_RE =
-	/\/\*\*\s*\n\s*\*\s*Copyright\s*\(c\)\s*(\d{4})(?:-(\d{4}))?\s+([^\n]+)\s*\n\s*\*\s*SPDX-License-Identifier:\s*([^\s]+)\s*\n\s*\*\//;
-const SLASH_RE = /\/\/\s*Copyright\s*\(c\)\s*(\d{4})(?:-(\d{4}))?\s+([^\n]+)/;
-const SPDX_RE = /SPDX-License-Identifier:\s*([^\s]+)/;
+const JSDOC_RE = /\/\*\*\s*\n\s*\*\s*Copyright\s*\(c\)[^]*?\*\/\s*/;
+const SLASH_RE = /\/\/\s*Copyright\s*\(c\)[^\n]*\n(\s*\/\/[^\n]*\n)*/;
 
 function detect(content: string) {
-	const jsdocMatch = content.match(JSDOC_RE);
-	if (jsdocMatch) {
-		const [full, year, endYear, author, license] = jsdocMatch;
+	let match = content.match(JSDOC_RE);
+	if (match) {
 		return {
 			exists: true,
-			header: full,
-			rest: content.slice(jsdocMatch.index! + full.length).trimStart(),
-			year: parseInt(year),
-			endYear: endYear ? parseInt(endYear) : undefined,
-			author: author.trim(),
-			license: license.trim(),
+			style: "jsdoc" as const,
+			header: match[0],
+			rest: content.slice(match.index! + match[0].length).trimStart(),
 		};
 	}
 
-	const slashMatch = content.match(SLASH_RE);
-	if (slashMatch) {
-		const [full, year, endYear, author] = slashMatch;
-		const spdxMatch = content.match(SPDX_RE);
-
-		let sliceIndex = slashMatch.index! + full.length;
-		if (spdxMatch && spdxMatch.index! > slashMatch.index!) {
-			sliceIndex = Math.max(sliceIndex, spdxMatch.index! + spdxMatch[0].length);
-		}
-
+	match = content.match(SLASH_RE);
+	if (match) {
 		return {
 			exists: true,
-			header: full + (spdxMatch ? `\n${spdxMatch[0]}` : ""),
-			rest: content.slice(sliceIndex).trimStart(),
-			year: parseInt(year),
-			endYear: endYear ? parseInt(endYear) : undefined,
-			author: author.trim(),
-			license: spdxMatch ? spdxMatch[1].trim() : "unknown",
+			style: "slash" as const,
+			header: match[0],
+			rest: content.slice(match.index! + match[0].length).trimStart(),
 		};
 	}
 
-	return { exists: false, header: "", rest: content.trimStart() };
+	return { exists: false, style: "none" as const, header: "", rest: content.trimStart() };
 }
 
-function generate(year: number, endYear?: number, author = CONFIG.author, license = CONFIG.license): string {
-	const range = endYear && endYear !== year ? `${year}-${endYear}` : `${year}`;
-	return `/**\n * Copyright (c) ${range} ${author}\n * SPDX-License-Identifier: ${license}\n */`;
+function generate(): string {
+	if (cfg.preferredStyle === "slash") {
+		const description = cfg.description ? `, ${cfg.description}` : "";
+		return `// ${cfg.project}${description}\n// Copyright (c) ${cfg.yearRange} ${cfg.author}\n// ${cfg.licenseLine}`;
+	} else {
+		return `/**\n * Copyright (c) ${cfg.yearRange} ${cfg.author}\n * ${cfg.licenseLine}\n */`;
+	}
+}
+
+function validate(header: string): { correct: boolean; reasons: string[] } {
+	const reasons: string[] = [];
+
+	const yearRegex = new RegExp(`\\b${cfg.yearRange.replace("-", "\\-")}\\b`);
+	if (!yearRegex.test(header)) {
+		reasons.push(`year → "${cfg.yearRange}"`);
+	}
+
+	const authorRegex = new RegExp(`\\b${cfg.author}\\b`);
+	if (!authorRegex.test(header)) {
+		reasons.push(`author → "${cfg.author}"`);
+	}
+
+	const escapedLicense = cfg.licenseLine.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const licenseRegex = new RegExp(`\\b${escapedLicense}\\b`);
+	if (!licenseRegex.test(header)) {
+		reasons.push(`license → "${cfg.licenseLine}"`);
+	}
+
+	return {
+		correct: reasons.length === 0,
+		reasons,
+	};
 }
 
 async function processFile(path: string, dry: boolean): Promise<{ status: string; msg: string }> {
@@ -75,30 +93,32 @@ async function processFile(path: string, dry: boolean): Promise<{ status: string
 
 	if (!detected.exists) {
 		if (!dry) {
-			const header = generate(CONFIG.currentYear);
+			const header = generate();
 			await Deno.writeTextFile(path, `${header}\n\n${detected.rest}`);
 		}
 		return { status: "added", msg: "added copyright header" };
 	}
 
 	let needsUpdate = false;
+	const reasons: string[] = [];
 
-	const year = detected.year ?? CONFIG.currentYear;
-	if ((detected.endYear ?? year ?? 0) < CONFIG.currentYear) {
+	if (detected.style !== cfg.preferredStyle) {
 		needsUpdate = true;
+		reasons.push(`style ${detected.style} → ${cfg.preferredStyle}`);
 	}
-	if (detected.author !== CONFIG.author || detected.license !== CONFIG.license) {
+
+	const check = validate(detected.header);
+	if (!check.correct) {
 		needsUpdate = true;
+		reasons.push(...check.reasons);
 	}
 
 	if (needsUpdate) {
-		const { endYear } = detected;
 		if (!dry) {
-			const header = generate(year, CONFIG.currentYear);
+			const header = generate();
 			await Deno.writeTextFile(path, `${header}\n\n${detected.rest}`);
 		}
-		const meow = year != CONFIG.currentYear ? `${year}-${CONFIG.currentYear}` : CONFIG.currentYear;
-		return { status: "updated", msg: `updated (${year}${endYear ? `-${endYear}` : ""} → ${meow})` };
+		return { status: "updated", msg: `${reasons.join(",")}` };
 	}
 
 	return { status: "ok", msg: "all good" };
@@ -110,20 +130,21 @@ async function main() {
 	const verbose = args.includes("--verbose") || args.includes("-v");
 	const dir = args.find((a) => !a.startsWith("-")) || "./";
 
-	console.log(cyan(bold("silly copyright header management")));
+	console.log(cyan(bold(`${cfg.project} copyright header management`)));
 	console.log(dim(`  target: ${dir}`));
-	console.log(dim(`  year: ${CONFIG.currentYear}`));
-	console.log(dim(`  author: ${CONFIG.author}`));
-	console.log(dim(`  license: ${CONFIG.license}`));
-	console.log(dim(`  mode: ${dry ? "dry run" : "owo"}\n`));
+	console.log(dim(`  year range: ${cfg.yearRange}`));
+	console.log(dim(`  author: ${cfg.author}`));
+	console.log(dim(`  license: ${cfg.license}`));
+	console.log(dim(`  preferred style: ${cfg.preferredStyle}`));
+	console.log(dim(`  mode: ${dry ? "dry run" : "live"}\n`));
 
 	const stats = { added: 0, updated: 0, ok: 0, errors: 0 };
 
 	const walkOptions = {
 		includeDirs: false,
 		followSymlinks: false,
-		exts: CONFIG.extensions,
-		skip: CONFIG.skip,
+		exts: cfg.extensions,
+		skip: cfg.skip,
 	};
 
 	for await (const entry of walk(dir, walkOptions)) {

@@ -148,7 +148,7 @@
     "members": {
       "packages/imouto": {
         "dependencies": [
-          "jsr:@404/varnish@0.1",
+          "jsr:@404/varnish@~0.1.1",
           "jsr:@july/snarl@1"
         ]
       },
