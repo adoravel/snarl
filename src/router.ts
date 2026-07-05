@@ -98,72 +98,60 @@ const enum NodeType {
 	WILDCARD = 2,
 }
 
-interface TrieNode {
+interface RadixNode {
 	type: NodeType;
 	segment: string;
-	paramName?: string;
-	optional?: boolean;
-	children: TrieNode[];
-	handler?: Handler<any>;
-	route?: Route<any>;
+	optional: boolean;
+	children: Map<string, RadixNode>;
+	paramChild: RadixNode | null;
+	wildcardChild: RadixNode | null;
+	handler: Handler<any> | null;
+	route: Route<any> | null;
 }
 
-interface MatchResult {
-	handler: Handler<any>;
-	params: Record<string, string>;
-	route: Route<any>;
+function createNode(type: NodeType, segment: string, optional = false): RadixNode {
+	return {
+		type,
+		segment,
+		optional,
+		children: new Map(),
+		paramChild: null,
+		wildcardChild: null,
+		handler: null,
+		route: null,
+	};
 }
 
-function extractPattern(pattern: string | PreciseURLPattern<any> | URLPattern): string {
-	if (typeof pattern === "string") return pattern;
-	return (pattern as PreciseURLPattern<any>).raw ?? pattern.pathname;
-}
-
-function parsePattern(pattern: string): Array<{ type: NodeType; segment: string; optional: boolean }> {
-	const path = pattern.replace(/^\/+|\/+$/g, "");
-	if (!path) return [];
-
-	const parts = path.split("/");
-	const segments: ReturnType<typeof parsePattern> = [];
-
-	for (let i = 0; i < parts.length; i++) {
-		const part = parts[i];
-
-		if (part.startsWith("*")) {
-			const paramName = part.length > 1 ? part.slice(1) : "*";
-			segments.push({ type: NodeType.WILDCARD, segment: paramName, optional: false });
-			break;
-		} else if (part.startsWith(":")) {
-			const optional = part.endsWith("?");
-			const paramName = optional ? part.slice(1, -1) : part.slice(1);
-			segments.push({ type: NodeType.PARAM, segment: paramName, optional });
-		} else {
-			segments.push({ type: NodeType.STATIC, segment: part, optional: false });
-		}
-	}
-	return segments;
-}
-
-function insertRoute(root: TrieNode, pattern: string, handler: Handler<any>, route: Route<any>) {
-	const segments = parsePattern(pattern);
+function insertRoute(root: RadixNode, pattern: string, handler: Handler<any>, route: Route<any>) {
+	const segments = pattern.replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
 	let node = root;
 
-	for (const { type, segment, optional } of segments) {
-		let child = node.children.find((c) =>
-			c.type === type && (type === NodeType.STATIC ? c.segment === segment : c.paramName === segment)
-		);
+	for (let i = 0; i < segments.length; i++) {
+		const seg = segments[i];
+		let child: RadixNode | null = null;
 
-		if (!child) {
-			child = {
-				type,
-				segment: type === NodeType.STATIC ? segment : "",
-				paramName: type !== NodeType.STATIC ? segment : undefined,
-				optional,
-				children: [],
-			};
-			node.children.push(child);
-			node.children.sort((a, b) => a.type - b.type);
+		if (seg.startsWith("*")) {
+			if (!node.wildcardChild) {
+				const name = seg.length > 1 ? seg.slice(1) : "*";
+				node.wildcardChild = createNode(NodeType.WILDCARD, name);
+			}
+			child = node.wildcardChild;
+		} else if (seg.startsWith(":")) {
+			const optional = seg.endsWith("?");
+			const paramName = optional ? seg.slice(1, -1) : seg.slice(1);
+			if (!node.paramChild) {
+				node.paramChild = createNode(NodeType.PARAM, paramName, optional);
+			}
+			child = node.paramChild;
+		} else {
+			child = node.children.get(seg) ?? null;
+			if (!child) {
+				child = createNode(NodeType.STATIC, seg);
+				node.children.set(seg, child);
+			}
 		}
+
+		if (!child) break;
 		node = child;
 	}
 
@@ -171,91 +159,72 @@ function insertRoute(root: TrieNode, pattern: string, handler: Handler<any>, rou
 	node.route = route;
 }
 
-function matchRoute(root: TrieNode, pathname: string): MatchResult | null {
-	pathname = pathname.replace(/\/+/g, "/");
-
-	if (pathname === "/" || pathname === "") {
-		return root.handler ? { handler: root.handler, params: {}, route: root.route! } : null;
-	}
-
-	const path = pathname.replace(/^\/+|\/+$/g, "");
-	const segments = path.split("/");
-
-	function search(node: TrieNode, index: number, params: Record<string, string>): MatchResult | null {
-		if (index >= segments.length) {
-			if (node.handler && node.route) {
-				return { handler: node.handler, params, route: node.route };
-			}
-			for (const child of node.children) {
-				if (child.optional) {
-					const result = search(child, index, params);
-					if (result) return result;
-				}
-				if (child.type === NodeType.WILDCARD && child.handler && child.route) {
-					return { handler: child.handler, params: { ...params, [child.paramName || "*"]: "" }, route: child.route };
-				}
-			}
-			return null;
+function matchRoute(
+	node: RadixNode,
+	segments: string[],
+	idx: number,
+	params: Record<string, string>,
+): { handler: Handler<any>; route: Route<any>; params?: Record<string, string> } | null {
+	if (idx >= segments.length) {
+		if (node.handler && node.route) {
+			return { handler: node.handler, route: node.route };
 		}
-
-		const segment = segments[index];
-
-		for (const child of node.children) {
-			if (child.type === NodeType.STATIC) {
-				if (child.segment === segment) {
-					const result = search(child, index + 1, params);
-					if (result) return result;
-				}
-			} else if (child.type === NodeType.PARAM) {
-				const newParams = { ...params, [child.paramName!]: segment };
-				const result = search(child, index + 1, newParams);
-				if (result) return result;
-
-				if (child.optional) {
-					const skipResult = search(child, index, params);
-					if (skipResult) return skipResult;
-				}
-			} else if (child.type === NodeType.WILDCARD) {
-				const wildcard = segments.slice(index).join("/");
-				const newParams = { ...params, [child.paramName || "*"]: wildcard };
-				return child.handler && child.route ? { handler: child.handler, params: newParams, route: child.route } : null;
-			}
+		if (node.wildcardChild) {
+			const wc = node.wildcardChild;
+			params[wc.segment] = "";
+			if (wc.handler && wc.route) return { handler: wc.handler, route: wc.route };
+		}
+		let pc = node.paramChild;
+		while (pc && pc.optional) {
+			if (pc.handler && pc.route) return { handler: pc.handler, route: pc.route };
+			pc = pc.paramChild;
 		}
 		return null;
 	}
 
-	const result = search(root, 0, {});
-	if (!result) return null;
+	const seg = segments[idx];
 
-	return { ...result, params: decodeParamsIfNeeded(result.params) };
-}
+	const staticChild = node.children.get(seg);
+	if (staticChild) {
+		const result = matchRoute(staticChild, segments, idx + 1, params);
+		if (result) return result;
+	}
 
-function decodeParamsIfNeeded(params: Record<string, string>): Record<string, string> {
-	let needsDecode = false;
-	for (const key in params) {
-		if (params[key].indexOf("%") !== -1) {
-			needsDecode = true;
-			break;
+	if (node.paramChild) {
+		const pc = node.paramChild;
+		let decoded = seg;
+		if (seg.indexOf("%") !== -1) {
+			try {
+				decoded = decodeURIComponent(seg);
+			} catch {
+				decoded = seg;
+			}
+		}
+
+		params[pc.segment] = decoded;
+		const result = matchRoute(pc, segments, idx + 1, params);
+		if (result) return result;
+		delete params[pc.segment];
+
+		if (pc.optional) {
+			const skipResult = matchRoute(pc, segments, idx, params);
+			if (skipResult) return skipResult;
 		}
 	}
-	if (!needsDecode) return params;
-	const decoded: Record<string, string> = {};
-	for (const key in params) {
-		try {
-			decoded[key] = decodeURIComponent(params[key]);
-		} catch {
-			decoded[key] = params[key];
-		}
+
+	if (node.wildcardChild) {
+		const wc = node.wildcardChild;
+		const remaining = idx < segments.length ? segments.slice(idx).join("/") : "";
+		params[wc.segment] = remaining;
+		if (wc.handler && wc.route) return { handler: wc.handler, route: wc.route };
 	}
-	return decoded;
+
+	return null;
 }
 
-function createTrieRoot(): TrieNode {
-	return {
-		type: NodeType.STATIC,
-		segment: "",
-		children: [],
-	};
+function extractPattern(pattern: string | PreciseURLPattern<any> | URLPattern): string {
+	if (typeof pattern === "string") return pattern;
+	return (pattern as PreciseURLPattern<any>).raw ?? pattern.pathname;
 }
 
 const EMPTY_200 = new Response(null, { status: 200 });
@@ -270,9 +239,13 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): HttpRouter
 		Route<any>[]
 	>;
 
-	const tries: Record<Method, TrieNode> = Object.fromEntries(
-		httpMethods.map((m) => [m, createTrieRoot()]),
-	) as Record<Method, TrieNode>;
+	const trees: Record<Method, RadixNode> = Object.fromEntries(
+		httpMethods.map((m) => [m, createNode(NodeType.STATIC, "")]),
+	) as Record<Method, RadixNode>;
+
+	const exactRoutes: Record<Method, Record<string, Route<any>>> = Object.fromEntries(
+		httpMethods.map((m) => [m, {}]),
+	) as Record<Method, Record<string, Route<any>>>;
 
 	let requestId = crypto.getRandomValues(new Uint32Array(1))[0];
 	const nextRequestId = () => {
@@ -284,6 +257,8 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): HttpRouter
 
 	const middlewares: Middleware[] = [];
 	const config = baseConfig as RouterConfig;
+	const composedCache = new WeakMap<Handler<any>, Handler<any>>();
+	let composedNotFound: Handler<any> | null = null;
 
 	config.prefix ??= "";
 	config.onError ??= (error, ctx) => (console.error("route error", error),
@@ -323,7 +298,10 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): HttpRouter
 			};
 
 			routes[method].push(route);
-			insertRoute(tries[method], pathname, handler, route);
+			insertRoute(trees[method], pathname, handler, route);
+			if (!base.includes(":") && !base.includes("*") && !base.includes("?")) {
+				exactRoutes[method][pathname] = route;
+			}
 
 			return r;
 		},
@@ -351,8 +329,11 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): HttpRouter
 					}
 					routes[method].push(route);
 
-					const p = extractPattern(route.pattern);
-					insertRoute(tries[method], p, route.handler, route);
+					const pattern = extractPattern(route.pattern);
+					insertRoute(trees[method], pattern, route.handler, route);
+					if (!pattern.includes(":") && !pattern.includes("*") && !pattern.includes("?")) {
+						exactRoutes[method][pattern] = route;
+					}
 				}
 			}
 			return r as HttpRouter;
@@ -367,13 +348,38 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): HttpRouter
 			);
 		},
 		async fetch(request, info): Promise<Response> {
+			composedNotFound ??= middlewares.length ? compose(middlewares, config.onNotFound) : config.onNotFound;
+
 			const method = request.method.toUpperCase() as Method;
 			const requestId = nextRequestId();
 
 			const url = new URL(request.url);
-			let match = matchRoute(tries[method], url.pathname);
-			if (!match && method === "HEAD") {
-				match = matchRoute(tries["GET"], url.pathname);
+			const pathname = url.pathname;
+
+			const exact = exactRoutes[method]?.[pathname];
+			let match: ReturnType<typeof matchRoute> | null = null;
+
+			if (exact) {
+				match = { handler: exact.handler, route: exact };
+			} else if (method === "HEAD") {
+				const getExact = exactRoutes["GET"]?.[pathname];
+				if (getExact) {
+					match = { handler: getExact.handler, route: getExact };
+				}
+			}
+
+			if (!match) {
+				const segments = pathname === "/" ? [] : pathname.replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
+				const params = Object.create(null);
+				const result = matchRoute(trees[method], segments, 0, params);
+				if (result) {
+					match = { handler: result.handler, params, route: result.route };
+				} else if (method === "HEAD") {
+					const resultHead = matchRoute(trees["GET"], segments, 0, params);
+					if (resultHead) {
+						match = { handler: resultHead.handler, params, route: resultHead.route };
+					}
+				}
 			}
 
 			let ctx: Context<any> | null = null;
@@ -386,9 +392,20 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): HttpRouter
 					requestId,
 				);
 
-				const response = !middlewares.length
-					? (match ? await match.route.handler(ctx) : await config.onNotFound(ctx))
-					: await compose(middlewares, match ? match.route.handler : config.onNotFound)(ctx);
+				let handler: Handler<any>;
+				if (!middlewares.length) {
+					handler = match ? match.route.handler : config.onNotFound;
+				} else if (!match) {
+					handler = composedNotFound;
+				} else {
+					let cached = composedCache.get(match.route.handler);
+					if (!cached) {
+						cached = compose(middlewares, match.route.handler);
+						composedCache.set(match.route.handler, cached);
+					}
+					handler = cached;
+				}
+				const response = await handler(ctx);
 
 				if (method === "HEAD" && response?.body) {
 					return new Response(null, {
