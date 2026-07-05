@@ -43,9 +43,9 @@ export async function createApp(options: AppOptions = {}): Promise<ReturnType<ty
 	router.use(
 		context(),
 		head(),
+		minify(),
 		scopedStyling(),
 		staticFiles(staticDir, { maxAge, immutable: immutableStatic }),
-		minify(),
 		logger(),
 	);
 
