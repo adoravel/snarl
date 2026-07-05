@@ -22,7 +22,7 @@
 
 import { compose, Context, type Handler, type Middleware, type Router } from "@july/snarl";
 import { httpMethods, type Method } from "@july/snarl";
-import { dirname, fromFileUrl, join, relative } from "@std/path";
+import { dirname, fromFileUrl, join, relative, toFileUrl } from "@std/path";
 import { blue, bold, cyan, dim, green, magenta, red, yellow } from "@std/fmt/colors";
 
 type RouteHandler = (ctx: Context) => Response | Promise<Response> | unknown;
@@ -138,27 +138,28 @@ async function scanDir(
 		if (!entry.name.match(/\.tsx?$/)) continue;
 
 		const rel = relative(base, file);
+		const module$path = import.meta.resolve(toFileUrl(file).href);
 
 		if (entry.name.startsWith("_")) {
 			if (entry.name.match(/^_layout\.tsx?$/)) {
-				meta.layout = await import(import.meta.resolve(file));
+				meta.layout = await import(module$path);
 				continue;
 			}
 			if (entry.name.match(/^_middleware\.tsx?$/)) {
-				const mod: MiddlewareModule = await import(import.meta.resolve(file));
+				const mod: MiddlewareModule = await import(module$path);
 				const mw = mod.default;
 				meta.middlewares.push(...(Array.isArray(mw) ? mw : [mw]));
 				continue;
 			}
 			if (entry.name.match(/^_error\.tsx?$/)) {
-				meta.errorBoundary = await import(import.meta.resolve(file));
+				meta.errorBoundary = await import(module$path);
 				continue;
 			}
 			continue; // skip unrelated shi
 		}
 
 		const importStart = performance.now();
-		const module = await import(import.meta.resolve(file));
+		const module = await import(module$path);
 		const importTime = performance.now() - importStart;
 		entries.push({
 			path: makeRoutePath(rel),
@@ -180,7 +181,7 @@ function collectDirAncestors(
 	const ancestors: RootRouteMetadata[] = [];
 	let dir = dirname(path);
 
-	while (dir.startsWith(base)) {
+	while (dir === base || dir.startsWith(base + "/")) {
 		const meta = metas.get(dir);
 		if (meta) ancestors.unshift(meta);
 		const parent = dirname(dir);
