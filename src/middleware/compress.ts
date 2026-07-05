@@ -63,8 +63,8 @@ export function compress(options: {
 		if (!encoding) return response;
 
 		const input = new Uint8Array(buf);
-		const cs = new CompressionStream(encoding);
-		const writer = cs.writable.getWriter();
+		const stream = new CompressionStream(encoding);
+		const writer = stream.writable.getWriter();
 		writer.write(input);
 		writer.close();
 
@@ -73,8 +73,7 @@ export function compress(options: {
 		headers.set("Vary", headers.has("Vary") ? `${headers.get("Vary")}, Accept-Encoding` : "Accept-Encoding");
 		headers.delete("Content-Length");
 
-		const compressed = await new Response(cs.readable).arrayBuffer();
-		return new Response(compressed, {
+		return new Response(stream.readable, {
 			status: response.status,
 			statusText: response.statusText,
 			headers,
