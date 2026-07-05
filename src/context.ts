@@ -15,6 +15,7 @@ import {
 } from "./errors.ts";
 import { extname, resolve } from "@std/path";
 import { getContentType } from "./mime.ts";
+import { isJsxElement, JSX, renderToString } from "@july/snarl";
 
 /** represents a file uploaded via `multipart/form-data` */
 export interface UploadedFile {
@@ -111,17 +112,24 @@ export class Context<Params = Record<string, string>> {
 	}
 
 	/** sends an HTML response */
-	html(content: string, init?: ResponseInit & { autoDoctype?: boolean }): Response {
-		if (init?.autoDoctype !== false && !content.startsWith("<!")) {
-			content = `<!DOCTYPE html>${content}`;
+	html(content: JSX.Node, init?: ResponseInit & { autoDoctype?: boolean }): Response | Promise<Response> {
+		const body = isJsxElement(content) ? renderToString(content) : content as string;
+
+		if (typeof body === "string") return this.finishHtml(body, init);
+		return Promise.resolve(body).then((resolved) => this.finishHtml(String(resolved ?? ""), init));
+	}
+
+	finishHtml(body: string, init?: ResponseInit & { autoDoctype?: boolean }): Response {
+		if (init?.autoDoctype !== false && !body.startsWith("<!")) {
+			body = `<!DOCTYPE html>${body}`;
 		}
 		if (!this._cookies?.headers.length && !this._headers) {
-			return new Response(content, {
+			return new Response(body, {
 				...init,
 				headers: { "Content-Type": "text/html; charset=utf-8", ...init?.headers },
 			});
 		}
-		return this.response(content, "text/html; charset=utf-8", init);
+		return this.response(body, "text/html; charset=utf-8", init);
 	}
 
 	/** sends a plain text response */

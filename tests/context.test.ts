@@ -36,7 +36,7 @@ Deno.test("context: response helpers", async (t) => {
 
 	await t.step("html response with doctype", async () => {
 		const ctx = makeCtx();
-		const res = ctx.html("<h1>hi</h1>");
+		const res = await ctx.html("<h1>hi</h1>");
 		assertEquals(res.headers.get("Content-Type"), "text/html; charset=utf-8");
 		const body = await res.text();
 		assertEquals(body.startsWith("<!DOCTYPE html>"), true);
@@ -44,7 +44,7 @@ Deno.test("context: response helpers", async (t) => {
 
 	await t.step("html response without auto doctype", async () => {
 		const ctx = makeCtx();
-		const res = ctx.html("<h1>hi</h1>", { autoDoctype: false });
+		const res = await ctx.html("<h1>hi</h1>", { autoDoctype: false });
 		const body = await res.text();
 		assertEquals(body.startsWith("<!DOCTYPE html>"), false);
 	});
