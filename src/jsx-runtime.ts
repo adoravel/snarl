@@ -50,7 +50,7 @@ type JsxComponent<P extends JSX.Props = JSX.Props> = (props: P) => JSX.Node;
 type JsxNode = string | number | boolean | null | undefined | JsxElement | JsxNode[] | Promise<JsxNode>;
 
 interface JsxProps {
-	children?: JsxNode | JsxNode[];
+	children?: JSX.Node | JSX.Node[];
 	dangerouslySetInnerHTML?: { __html: string };
 	[key: string]: unknown;
 }

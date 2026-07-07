@@ -400,8 +400,7 @@ export function createRouter(baseConfig: Partial<RouterConfig> = {}): HttpRouter
 				} else {
 					let cached = composedCache.get(match.route.handler);
 					if (!cached) {
-						cached = compose(middlewares, match.route.handler);
-						composedCache.set(match.route.handler, cached);
+						composedCache.set(match.route.handler, cached = compose(middlewares, match.route.handler));
 					}
 					handler = cached;
 				}
