@@ -48,6 +48,22 @@ export function scopedCss(): Middleware {
 	};
 }
 
+export function injectScopedStylesheet(ctx: Context, input: string): string | undefined {
+	const used = contextualisedStyles.get(ctx);
+	if (!used?.size) return;
+
+	let links = "";
+	for (const hash of used) {
+		links += `<link rel="stylesheet" href="/_css/${hash}.css">`;
+	}
+
+	const headClose = "</head>";
+	const idx = input.indexOf(headClose);
+	if (idx === -1) return links + input;
+
+	return input.slice(0, idx) + links + headClose + input.slice(idx + headClose.length);
+}
+
 /**
  * injects `<link rel="stylesheet">` tags for every scoped style marked
  * as used during this request (via `markStyleUsed`).
@@ -58,20 +74,13 @@ export function styleScopeInjection(): Middleware {
 	return async (ctx: Context, next: () => Promise<Response>) => {
 		const res = await next();
 
-		const used = contextualisedStyles.get(ctx);
-		if (!used?.size) return res;
-
 		const contentType = res.headers.get("Content-Type") ?? "";
 		if (!contentType.includes("text/html")) return res;
 
 		const html = await res.text();
 		if (!html) return res;
 
-		const links = [...used]
-			.map((hash) => `<link rel="stylesheet" href="/_css/${hash}.css">`)
-			.join("");
-
-		const injected = html.includes("</head>") ? html.replace("</head>", `${links}</head>`) : links + html;
+		const injected = injectScopedStylesheet(ctx, html);
 
 		const headers = new Headers(res.headers);
 		headers.delete("Content-Length");
