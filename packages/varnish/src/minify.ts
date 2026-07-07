@@ -10,7 +10,7 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
 interface CacheEntry {
-	bytes: Uint8Array<ArrayBuffer>;
+	bytes: Uint8Array;
 	length: number;
 }
 
@@ -20,7 +20,7 @@ class LRUCache {
 
 	constructor(private readonly maxEntries: number, private readonly maxBytes: number) {}
 
-	get(key: string): Uint8Array<ArrayBuffer> | undefined {
+	get(key: string): Uint8Array | undefined {
 		const entry = this.map.get(key);
 		if (!entry) return undefined;
 
@@ -30,11 +30,9 @@ class LRUCache {
 		return entry.bytes;
 	}
 
-	set(key: string, bytes: Uint8Array<ArrayBuffer>): void {
+	set(key: string, bytes: Uint8Array): void {
 		const prev = this.map.get(key);
-		if (prev) {
-			this.bytes -= prev.length;
-		}
+		if (prev) this.bytes -= prev.length;
 
 		const length = bytes.byteLength;
 		this.map.set(key, { bytes, length });
@@ -55,6 +53,17 @@ class LRUCache {
 	}
 }
 
+function fnv1a64(bytes: Uint8Array): string {
+	let hash = 0xcbf29ce484222325n;
+	const prime = 0x100000001b3n;
+
+	for (let i = 0; i < bytes.length; i++) {
+		hash ^= BigInt(bytes[i]);
+		hash = (hash * prime) & ((1n << 64n) - 1n);
+	}
+	return hash.toString(16);
+}
+
 export interface MinifyOptions {
 	/** minify `text/html` responses. defaults to `true` */
 	html?: boolean;
@@ -66,9 +75,21 @@ export interface MinifyOptions {
 	maxCacheBytes?: number;
 }
 
-function minifyCss(src: string): Uint8Array<ArrayBuffer> {
-	const wrapped = `<style>${src}</style>`;
-	const data = mini(encoder.encode(wrapped), {
+function concat3(a: Uint8Array, b: Uint8Array, c: Uint8Array): Uint8Array {
+	const out = new Uint8Array(a.length + b.length + c.length);
+	out.set(a, 0);
+	out.set(b, a.length);
+	out.set(c, a.length + b.length);
+	return out;
+}
+
+const PREFIX = encoder.encode("<style>");
+const SUFFIX = encoder.encode("</style>");
+
+function minifyCssFromBytes(src: Uint8Array): Uint8Array {
+	const wrapped = concat3(PREFIX, src, SUFFIX);
+
+	const data = mini(wrapped, {
 		keep_spaces_between_attributes: false,
 		keep_comments: true,
 		minify_css: true,
@@ -81,7 +102,7 @@ function minifyCss(src: string): Uint8Array<ArrayBuffer> {
 	}
 
 	console.warn("minify:", "unexpected minify-html output shape for standalone css");
-	return encoder.encode(src);
+	return src;
 }
 
 /**
@@ -98,7 +119,10 @@ function minifyCss(src: string): Uint8Array<ArrayBuffer> {
  * app.use(minify({ css: false, maxCacheEntries: 256 }));
  * ```
  */
-export default function minify(options: MinifyOptions = {}): Middleware {
+export default function minify(options: MinifyOptions = {}): Middleware & {
+	perform(input: string, isCss: boolean): string;
+	perform(input: Uint8Array, isCss: boolean): string;
+} {
 	const {
 		html = true,
 		css = true,
@@ -108,7 +132,35 @@ export default function minify(options: MinifyOptions = {}): Middleware {
 
 	const cache = new LRUCache(maxCacheEntries, maxCacheBytes);
 
-	return async (_ctx: Context, next: () => Promise<Response>) => {
+	function key4Bytes(bytes: Uint8Array): string {
+		return `${bytes.byteLength}:${fnv1a64(bytes)}`;
+	}
+
+	function perform(input: string | Uint8Array, isCss: boolean): string {
+		const bytes = typeof input === "string" ? encoder.encode(input) : input;
+
+		const key = key4Bytes(bytes);
+
+		const cached = cache.get(key);
+		if (cached) return decoder.decode(cached);
+
+		let data: Uint8Array;
+		if (isCss) {
+			data = minifyCssFromBytes(bytes);
+		} else {
+			data = mini(bytes, {
+				keep_spaces_between_attributes: false,
+				keep_comments: true,
+				minify_css: true,
+				minify_js: true,
+			}) as Uint8Array<ArrayBuffer>;
+		}
+
+		cache.set(key, data);
+		return decoder.decode(data);
+	}
+
+	const middleware = (async (_ctx: Context, next: () => Promise<Response>) => {
 		const response = await next();
 
 		if (response.headers.has("Content-Encoding")) return response;
@@ -122,22 +174,7 @@ export default function minify(options: MinifyOptions = {}): Middleware {
 		const bytes = new Uint8Array(buf);
 		if (bytes.length === 0) return response;
 
-		const string = decoder.decode(bytes);
-		let minified = cache.get(string);
-
-		if (minified === undefined) {
-			if (isCss) {
-				minified = minifyCss(string);
-			} else {
-				minified = mini(bytes, {
-					keep_spaces_between_attributes: false,
-					keep_comments: true,
-					minify_css: true,
-					minify_js: true,
-				}) as Uint8Array<ArrayBuffer>;
-			}
-			cache.set(string, minified);
-		}
+		const minified = perform(bytes, isCss);
 
 		const headers = new Headers(response.headers);
 		headers.delete("Content-Length");
@@ -147,5 +184,8 @@ export default function minify(options: MinifyOptions = {}): Middleware {
 			statusText: response.statusText,
 			headers,
 		});
-	};
+	}) as ReturnType<typeof minify>;
+
+	middleware.perform = perform;
+	return middleware;
 }
