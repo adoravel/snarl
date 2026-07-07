@@ -85,27 +85,29 @@ function renderHeadAttributes(attrs: Record<string, string>): string {
 	for (const [key, value] of Object.entries(attrs)) {
 		result += jsxAttr(key, value);
 	}
-	return result;
+	return result ? ` ${result}` : result;
 }
 
-function injectIntoHead(html: string, content: string, attrs: Record<string, string>): string {
-	const attrs$stringified = renderHeadAttributes(attrs);
+export function injectIntoHead(input: string, content?: string, attrs?: Record<string, string>): string {
+	if (!content && !attrs) return input;
 
-	if (HEAD_RE.test(html)) {
-		html = html.replace(HEAD_RE, (match) => {
+	const attrs$stringified = attrs ? renderHeadAttributes(attrs) : "";
+
+	if (HEAD_RE.test(input)) {
+		input = input.replace(HEAD_RE, (match) => {
 			const existing = match.match(/<head(?:\s([^>]*))?>/i);
 			if (existing && existing[1].trim()) {
 				return match;
 			}
 			return `<head${attrs$stringified}>`;
 		});
-		return html.replace(HEAD_RE, `$1${content}`);
+		return content ? input.replace(HEAD_RE, `$1${content}`) : input;
 	}
 
-	if (BODY_RE.test(html)) {
-		return html.replace(BODY_RE, `<head${attrs$stringified}>${content}</head>$1`);
+	if (BODY_RE.test(input)) {
+		return input.replace(BODY_RE, `<head${attrs$stringified}>${content ?? ""}</head>$1`);
 	}
-	return `<head${attrs$stringified}>${content}</head>${html}`;
+	return `<head${attrs$stringified}>${content ?? ""}</head>${input}`;
 }
 
 export function Head({ children, ...attrs }: { children?: any; [key: string]: any }): null {
@@ -117,6 +119,21 @@ export function Head({ children, ...attrs }: { children?: any; [key: string]: an
 	}
 
 	return null;
+}
+
+export function collectHeadContent(ctx: Context): {
+	content?: Promise<string>;
+	attrs?: Record<string, string>;
+} | undefined {
+	const store = ctx.state.get(HEAD_STORE) as Map<string, HeadEntry> | undefined;
+	const attrs = ctx.state.get(ATTR_STORE) as Record<string, string> | undefined;
+
+	if ((!store || store.size === 0) && !attrs) {
+		return;
+	}
+
+	const content = store && store.size > 0 ? renderHeadContent(Array.from(store.values(), (e) => e.node)) : undefined;
+	return { content, attrs };
 }
 
 export function head(): Middleware {
