@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Context, type JSX, jsx } from "@july/snarl";
+import { jsx } from "@july/snarl/jsx-runtime";
+import type { Context } from "@july/snarl";
 import { markStyleUsed, scopeCss, styleRegistry } from "@404/varnish";
 import { getContext } from "./context.ts";
 import meowmix0 from "./meowmix0.ts";

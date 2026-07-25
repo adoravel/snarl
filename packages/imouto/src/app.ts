@@ -25,10 +25,17 @@ export interface AppOptions {
 	verbose?: boolean;
 }
 
+const DEFAULT_APP_OPTIONS: Required<AppOptions> = {
+	staticDir: "./static",
+	routesDir: "./src/routes",
+	env: Deno.env.get("ENV") || "development",
+	immutableStatic: false,
+	maxAge: 3600,
+	verbose: true,
+};
+
 export function transform(mini: ReturnType<typeof minify>): Middleware {
 	return async (ctx, next) => {
-		if (ctx.request.method !== "GET") return next();
-
 		const response = await next();
 
 		if (!response.body) return response;
@@ -54,13 +61,18 @@ export function transform(mini: ReturnType<typeof minify>): Middleware {
 
 export async function createApp(options: AppOptions = {}): Promise<ReturnType<typeof createRouter>> {
 	const {
-		staticDir = "./static",
-		routesDir = "./src/routes",
-		env = Deno.env.get("ENV") || "development",
-		immutableStatic = false,
-		verbose = env !== "production",
-		maxAge = immutableStatic ? 60 * 60 * 24 * 365 : 60 * 60,
-	} = options;
+		staticDir,
+		routesDir,
+		env,
+		immutableStatic,
+		verbose,
+		maxAge,
+	} = {
+		...DEFAULT_APP_OPTIONS,
+		...options,
+		verbose: options?.verbose ?? (options?.env ?? DEFAULT_APP_OPTIONS.env) !== "production",
+		maxAge: options?.maxAge ?? (options?.immutableStatic ? 31536000 : 3600),
+	} satisfies Required<AppOptions>;
 
 	const router = createRouter();
 	router.config.onListen = ({ hostname, port }) => {
@@ -76,6 +88,9 @@ export async function createApp(options: AppOptions = {}): Promise<ReturnType<ty
 		logger(),
 	);
 
-	if (routesDir) await scanRoutes(router, { dir: routesDir, verbose });
+	if (routesDir) {
+		await scanRoutes(router, { dir: routesDir, verbose });
+	}
+
 	return router;
 }
