@@ -13,7 +13,7 @@ export function makeRoutePath(input: string): string {
 		.replace(/\\/g, "/")
 		.replace(/\.tsx?$/, "")
 		.replace(/(^|\/)mod$/, "")
-		.replace(/\[\.\.\.(\w+)\]/g, ":$1*")
+		.replace(/\[\.\.\.(\w+)\]/g, "*$1")
 		.replace(/\[(\w+)\]/g, ":$1");
 
 	return path === "" ? "/" : `/${path}`;
@@ -29,7 +29,7 @@ export function makeRoutePath(input: string): string {
  */
 export function rateRouteSpecificity(path: string): number {
 	return path.split("/").reduce((score, seg) => {
-		if (!seg || seg === "*" || seg.endsWith("*")) return score;
+		if (!seg || seg.startsWith("*")) return score;
 		if (seg.endsWith("?")) return score + 1;
 		if (seg.startsWith(":")) return score + 2;
 		return score + 3;

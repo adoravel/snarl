@@ -70,13 +70,15 @@ app.serve({ port: 8000 });
 
 ## api
 
-| API                  | Description                                                 |
-| :------------------- | :---------------------------------------------------------- |
-| **signal(value)**    | create a reactive signal                                    |
-| **computed(getter)** | create a derived computation                                |
-| **effect(fn)**       | run a side effect that tracks dependencies                  |
-| **batch(fn)**        | batch multiple signal writes into one flush                 |
-| **aether(?options)** | Middleware that discovers islands and serves client bundles |
+| API                  | Description                                                                |
+| :------------------- | :------------------------------------------------------------------------- |
+| **signal(value)**    | create a reactive signal                                                   |
+| **computed(getter)** | create a derived computation                                               |
+| **effect(fn)**       | run a side effect that tracks dependencies                                 |
+| **batch(fn)**        | batch multiple signal writes into one flush                                |
+| **onMount(fn)**      | run once, untracked, after the island is in the document; return a cleanup |
+| **onCleanup(fn)**    | run when the island, `<show>` branch or `<for>` item is disposed           |
+| **aether(?options)** | Middleware that discovers islands and serves client bundles                |
 
 [`@404/aether`]: https://kyu.re/~snarl
 [snarl]: https://jsr.io/@july/snarl

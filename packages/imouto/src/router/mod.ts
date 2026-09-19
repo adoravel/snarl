@@ -13,7 +13,7 @@
  *   routes/mod.tsx               /
  *   routes/about.tsx             /about
  *   routes/blog/[id].tsx         /blog/:id
- *   routes/blog/[...slug].tsx    /blog/*
+ *   routes/blog/[...slug].tsx    /blog/*slug
  *   routes/_layout.tsx           layout wrapping all routes in this dir
  *   routes/_middleware.ts        middleware applied to all routes in this dir
  *   routes/_error.tsx            error boundary for this dir
