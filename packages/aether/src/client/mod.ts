@@ -6,6 +6,7 @@
 
 import { isPromiseLike } from "../promise.ts";
 import { effectScope } from "../reactivity/mod.ts";
+import { deferMounts } from "../reactivity/lifecycle.ts";
 import { renderAsyncSlot } from "./async-slot.ts";
 
 export type IslandComponent<P = Record<string, unknown>> = (props: P) => Node | Node[] | null;
@@ -72,11 +73,14 @@ function mountOne(el: HTMLElement): void {
 
 	let result: Node | Node[] | Promise<Node | Node[] | null> | null = null;
 	let dispose: (() => void) | undefined;
+	let mounted: () => void;
 
 	try {
-		dispose = effectScope(() => {
-			result = component(props);
-		});
+		[dispose, mounted] = deferMounts(() =>
+			effectScope(() => {
+				result = component(props);
+			})
+		);
 	} catch (err) {
 		return console.error(
 			`aether: island "${name}" threw during hydration and was skipped. ` +
@@ -114,6 +118,7 @@ function mountOne(el: HTMLElement): void {
 	}
 
 	el.removeAttribute("data-x-id");
+	mounted();
 }
 
 /** hydrates every unhydrated `[data-x-id]` element under `root` with a registered island */
