@@ -1,7 +1,7 @@
 {
 	"name": "@404/varnish",
 	"description": "response post-processing middleware for snarl",
-	"version": "0.3.0",
+	"version": "1.0.0",
 	"license": "MPL-2.0",
 	"exports": "./src/mod.ts",
 	"imports": {
