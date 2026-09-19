@@ -24,6 +24,11 @@ export const voidTags: ReadonlySet<string> = new Set([
 ]);
 
 const ESC_RE = /[&<>"']/;
+
+const RAW_TEXT_TAGS: ReadonlySet<string> = new Set(["script", "style"]);
+const SCRIPT_BREAKOUT_RE = /<\/script|<!--/gi;
+const STYLE_BREAKOUT_RE = /<\/style/gi;
+
 const SAFE_ATTR_RE = /^[a-zA-Z_:][-\w:.]*$/;
 const CSS_PROP_RE = /[A-Z]/g;
 
@@ -111,6 +116,14 @@ function encode(str: string): string {
 	return last === 0 ? str : out + str.slice(last);
 }
 
+function escapeRawText(text: string, tag: string): string {
+	if (!text.includes("<")) return text;
+	return text.replace(
+		tag === "script" ? SCRIPT_BREAKOUT_RE : STYLE_BREAKOUT_RE,
+		(m) => "<\\" + m.slice(1),
+	);
+}
+
 export function jsxEscape(value: unknown): string | Promise<string> {
 	if (isIgnorable(value)) return "";
 
@@ -180,20 +193,20 @@ function renderStyle(style: Record<string, string | number>): string {
 	return css;
 }
 
-function renderTrusted(node: unknown): string | Promise<string> {
-	if (typeof node === "string") return encode(node);
+function renderTrusted(node: unknown, raw = false): string | Promise<string> {
+	if (typeof node === "string") return raw ? node : encode(node);
 	if (typeof node === "number") return String(node);
 	if (node == null || node === false || node === true) return "";
 
 	if (typeof node == "object") {
 		if (typeof (node as any).then === "function") {
-			return (node as Promise<unknown>).then((v) => renderTrusted(v));
+			return (node as Promise<unknown>).then((v) => renderTrusted(v, raw));
 		}
 		if (Array.isArray(node)) {
-			return renderTrustedArray(node);
+			return renderTrustedArray(node, raw);
 		}
 		if (isJsxElement(node)) {
-			return renderJsx(node);
+			return renderJsx(node, raw);
 		}
 		if ("__html" in node) {
 			return (node as Html).__html!;
@@ -202,14 +215,14 @@ function renderTrusted(node: unknown): string | Promise<string> {
 	return String(node);
 }
 
-function renderTrustedArray(nodes: unknown[]): string | Promise<string> {
+function renderTrustedArray(nodes: unknown[], raw = false): string | Promise<string> {
 	const len = nodes.length;
 	if (len === 0) return "";
 
 	let hasAsync = false;
 	const parts = new Array(len);
 	for (let i = 0; i < len; i++) {
-		const r = renderTrusted(nodes[i]);
+		const r = renderTrusted(nodes[i], raw);
 		parts[i] = r;
 
 		if (typeof r !== "string") {
@@ -270,17 +283,17 @@ export function jsx<P extends JSX.Props = JSX.Props>(
 	return el;
 }
 
-function renderJsx(element: JSX.Element): string | Promise<string> {
+function renderJsx(element: JSX.Element, raw = false): string | Promise<string> {
 	const { tag, props } = element;
 
 	if (tag === Fragment) {
 		return props.dangerouslySetInnerHTML != null
 			? String(props.dangerouslySetInnerHTML.__html)
-			: renderTrusted(props.children);
+			: renderTrusted(props.children, raw);
 	}
 	if (typeof tag === "function") {
 		try {
-			return renderTrusted(tag(props));
+			return renderTrusted(tag(props), raw);
 		} catch (error) {
 			log.error("snarl/jsx:", "error rendering component:", error);
 			return `<!-- error rendering component -->`;
@@ -307,6 +320,15 @@ function renderJsx(element: JSX.Element): string | Promise<string> {
 			throw new Error("cannot use both children and dangerouslySetInnerHTML");
 		}
 		return html + String(props.dangerouslySetInnerHTML.__html) + `</${tag}>`;
+	}
+
+	const rawTag = tag.length === 5 || tag.length === 6 ? tag.toLowerCase() : tag;
+	if (RAW_TEXT_TAGS.has(rawTag)) {
+		const inner = renderTrusted(props.children, true);
+		if (typeof inner !== "string") {
+			return (inner as Promise<string>).then((c) => html + escapeRawText(c, rawTag) + `</${tag}>`);
+		}
+		return html + escapeRawText(inner, rawTag) + `</${tag}>`;
 	}
 
 	const inner = renderTrusted(props.children);
