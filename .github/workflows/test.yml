@@ -25,4 +25,4 @@ jobs:
       - name: deno ci
         run: deno ci
       - name: Run tests across workspace
-        run: deno test --allow-net --allow-write --allow-read --allow-env --allow-run
+        run: deno task test
