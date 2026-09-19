@@ -30,8 +30,35 @@ function templateToSource(strings: TemplateStringsArray, values: unknown[]): str
 	return strings.reduce<string>((acc, str, i) => acc + str + (values[i] ?? ""), "").trim();
 }
 
+const CSS_ROUTE = "/_css/";
+
+let loaded: Set<string> | undefined;
+
+export function ensureStyles(scope: string): void {
+	if (!loaded) {
+		loaded = new Set();
+		const links = document.querySelectorAll<HTMLLinkElement>(
+			`link[rel="stylesheet"][href^="${CSS_ROUTE}"]`,
+		);
+		for (const link of links) {
+			const href = link.getAttribute("href")!;
+			if (href.endsWith(".css")) loaded.add(href.slice(CSS_ROUTE.length, -4));
+		}
+	}
+
+	if (loaded.has(scope)) return;
+	loaded.add(scope);
+
+	const link = document.createElement("link");
+	link.rel = "stylesheet";
+	link.href = `${CSS_ROUTE}${scope}.css`;
+
+	document.head.append(link);
+}
+
 function createComponent(tag: string, scope: string): ScopedComponent {
 	return function TagComponent(props: Record<string, unknown> = {}) {
+		ensureStyles(scope);
 		const { class: className, ...rest } = props;
 		return jsx(tag, {
 			...rest,
@@ -53,11 +80,12 @@ function createScopedStyles(src: string): ScopedStyleSheet {
 		},
 	});
 
+	const use = () => ensureStyles(scope);
 	return new Proxy(
-		{ id: scope, toString: () => scope, use: () => {}, styled: styledFactory },
+		{ id: scope, toString: () => (use(), scope), use, styled: styledFactory },
 		{
-			get(target, tag: string) {
-				if (tag in target) return (target as any)[tag];
+			get(target, tag: string | symbol) {
+				if (typeof tag !== "string" || tag in target) return (target as any)[tag];
 				return createComponent(tag, scope);
 			},
 		},
