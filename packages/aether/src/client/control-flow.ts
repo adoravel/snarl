@@ -4,7 +4,15 @@
  * SPDX-License-Identifier: MPL-2.0
  */
 
-import { effect, type Signal, signal } from "../reactivity/mod.ts";
+import {
+	type Dispose,
+	effect,
+	effectScope,
+	getActiveSub,
+	setActiveSub,
+	type Signal,
+	signal,
+} from "../reactivity/mod.ts";
 import { normaliseChildren } from "./jsx-runtime.ts";
 import type { JSX } from "./jsx-runtime.ts";
 
@@ -27,6 +35,7 @@ interface Entry<T> {
 	item: T;
 	index: Signal<number>;
 	nodes: Node[];
+	dispose: Dispose;
 }
 
 function readEach<T>(each: ForProps<T>["each"]): T[] {
@@ -53,6 +62,20 @@ export function For<T>(props: ForProps<T>): JSX.Element {
 	frag.append(startAnchor, endAnchor);
 
 	const entries = new Map<string | number, Entry<T>>();
+	const owner = getActiveSub();
+
+	const render = (item: T, index: Signal<number>): Pick<Entry<T>, "nodes" | "dispose"> => {
+		const previous = setActiveSub(owner);
+		try {
+			let nodes: Node[] = [];
+			const dispose = effectScope(() => {
+				nodes = normaliseChildren(props.children(item, () => index())) as Node[];
+			});
+			return { nodes, dispose };
+		} finally {
+			setActiveSub(previous);
+		}
+	};
 
 	effect(() => {
 		const items = readEach(props.each);
@@ -76,14 +99,14 @@ export function For<T>(props: ForProps<T>): JSX.Element {
 			let entry = entries.get(key);
 			if (!entry) {
 				const index = signal(i);
-				const nodes = normaliseChildren(props.children(item, () => index()));
-				entry = { item, index, nodes: nodes as Node[] };
+				entry = { item, index, ...render(item, index) };
 				entries.set(key, entry);
 			} else {
 				entry.index(i);
 				if (!Object.is(entry.item, item)) {
+					entry.dispose();
 					for (const node of entry.nodes) node.parentNode?.removeChild(node);
-					entry.nodes = normaliseChildren(props.children(item, () => entry!.index())) as Node[];
+					Object.assign(entry, render(item, entry.index));
 					entry.item = item;
 				}
 			}
@@ -99,6 +122,7 @@ export function For<T>(props: ForProps<T>): JSX.Element {
 
 		for (const [key, entry] of entries) {
 			if (seen.has(key)) continue;
+			entry.dispose();
 			for (const node of entry.nodes) node.parentNode?.removeChild(node);
 			entries.delete(key);
 		}
