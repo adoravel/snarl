@@ -10,8 +10,9 @@ import type { IslandRegistry } from "./registry.ts";
 
 import type { BuildOptions, Plugin } from "esbuild";
 import { log } from "@july/snarl/verbosity";
+import { serverOnlyGuard, type ServerOnlyGuardOptions } from "./guard.ts";
 
-export interface AetherServeOptions {
+export interface AetherServeOptions extends ServerOnlyGuardOptions {
 	/** in-memory cache for bundled islands. defaults to a shared `Map` */
 	cache?: Map<string, string>;
 	/** extra esbuild plugins merged after the aether resolver */
@@ -126,10 +127,13 @@ export async function bundleIslands(
 	registry: IslandRegistry,
 	options: AetherServeOptions,
 ): Promise<string> {
+	return await bundleEntry(buildEntrySource(names, registry), options);
+}
+
+/** bundles a generated entry module for the browser, with aether's resolver and guard */
+export async function bundleEntry(source: string, options: AetherServeOptions): Promise<string> {
 	const { default: esbuild } = await import("esbuild");
 	const { denoPlugin } = await import("@deno/esbuild-plugin");
-
-	const source = buildEntrySource(names, registry);
 
 	const result = await esbuild.build({
 		...options.esbuild,
@@ -146,14 +150,24 @@ export async function bundleIslands(
 		target: options.esbuild?.target ?? "es2022",
 		jsx: options.esbuild?.jsx ?? "automatic",
 		jsxImportSource: options.jsxImportSource ?? "@404/aether/client",
-		plugins: [aetherResolver(), denoPlugin(), ...(options.plugins ?? [])],
+		plugins: [
+			aetherResolver(),
+			serverOnlyGuard({ serverOnly: options.serverOnly }),
+			denoPlugin(),
+			...(options.plugins ?? []),
+		],
 		minify: options.esbuild?.minify ?? Deno.env.get("ENV") === "production",
 		treeShaking: options.esbuild?.treeShaking ?? true,
 		logLevel: options.esbuild?.logLevel ?? "warning",
 	});
 
 	if (result.errors.length) {
-		throw new Error(`aether: bundle failed\n${result.errors.map((e) => e.text).join("\n")}`);
+		const lines = result.errors.map((e) =>
+			e.location
+				? `${e.text}\n    at ${e.location.file}:${e.location.line}:${e.location.column}`
+				: e.text
+		);
+		throw new Error(`aether: bundle failed\n${lines.join("\n")}`);
 	}
 	return result.outputFiles![0].text;
 }

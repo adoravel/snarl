@@ -13,7 +13,7 @@
 	"tasks": {
 		"bench": "deno task --cwd=bench start",
 		"bench:gen": "deno task --cwd=bench generate",
-		"test": "deno test --allow-read --allow-env"
+		"test": "deno test --allow-read --allow-env --allow-net --allow-write --allow-run"
 	},
 	"imports": {
 		"@std/assert": "jsr:@std/assert@^1.0.19",
