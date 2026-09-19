@@ -126,7 +126,10 @@ export function createDispatcher(state: DispatchState): {
 					headers: { "Content-Type": "text/html; charset=utf-8", ...(err.headers || {}) },
 				});
 			}
-			return ctx.json({ error: err.message }, { status: err.status, headers: err.headers });
+			const body = err.details === undefined
+				? { error: err.message }
+				: { error: err.message, details: err.details };
+			return ctx.json(body, { status: err.status, headers: err.headers });
 		}
 		return state.config.onError(err as Error, ctx);
 	}

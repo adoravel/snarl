@@ -313,7 +313,6 @@ export interface AwaitProps<T> {
 	children: (value: T) => JSX.Node;
 }
 
-
 export function Await<T>(props: AwaitProps<T>): JSX.Element {
 	const block = createBlock("await");
 	let hydrating = isHydrating();

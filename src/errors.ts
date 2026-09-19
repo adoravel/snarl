@@ -18,6 +18,8 @@ export class HttpError extends Error {
 		public status: number,
 		message: string,
 		public headers?: HeadersInit,
+		/** structured data for the response body, e.g. validation issues */
+		public details?: unknown,
 	) {
 		super(message);
 		this.name = "HttpError";

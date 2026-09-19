@@ -9,6 +9,7 @@
  */
 
 import type { Context } from "./core.ts";
+import type { Schema } from "../validate.ts";
 
 export interface BodyReader {
 	/**
@@ -17,7 +18,8 @@ export interface BodyReader {
 	 */
 	plain(): Promise<string>;
 
-	/** returns the body as a parsed JSON object, using the cache if present */
+	/** returns the body as parsed JSON, using the cache if present */
+	json<S extends Schema<unknown>>(schema: S): Promise<S extends Schema<infer T> ? T : never>;
 	json<T = any>(schema?: { parse: (val: unknown) => T } | ((val: unknown) => T)): Promise<T>;
 }
 
