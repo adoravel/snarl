@@ -9,6 +9,7 @@ a minimal islands architecture implementation for [snarl]
 - signal/computed/effect system with automatic dependency tracking
 - client bundles are built per-island-set with tree-shaking and minification via [`esbuild`]
 - ssr output includes hydration markers; the client bundle hydrates only `[data-x-id]` boundaries
+- `<show>`, `<for>` (keyed, optionally windowed with `virtual`) and `<await>` control flow
 
 ## quick start
 
@@ -70,15 +71,21 @@ app.serve({ port: 8000 });
 
 ## api
 
-| API                  | Description                                                                |
-| :------------------- | :------------------------------------------------------------------------- |
-| **signal(value)**    | create a reactive signal                                                   |
-| **computed(getter)** | create a derived computation                                               |
-| **effect(fn)**       | run a side effect that tracks dependencies                                 |
-| **batch(fn)**        | batch multiple signal writes into one flush                                |
-| **onMount(fn)**      | run once, untracked, after the island is in the document; return a cleanup |
-| **onCleanup(fn)**    | run when the island, `<show>` branch or `<for>` item is disposed           |
-| **aether(?options)** | Middleware that discovers islands and serves client bundles                |
+| API                                           | Description                                                                 |
+| :-------------------------------------------- | :-------------------------------------------------------------------------- |
+| **signal(value)**                             | create a reactive signal                                                    |
+| **computed(getter)**                          | create a derived computation                                                |
+| **effect(fn)**                                | run a side effect that tracks dependencies                                  |
+| **batch(fn)**                                 | batch multiple signal writes into one flush                                 |
+| **onMount(fn)**                               | run once, untracked, after the island is in the document; return a cleanup  |
+| **onCleanup(fn)**                             | run when the island, `<show>` branch or `<for>` item is disposed            |
+| **resource(deps, fetcher)**                   | `{ data, error, loading, refetch }` signals; aborts on re-run and disposal  |
+| **createStore(key, initial, opts)**           | a signal shared by key, optionally persisted (`localstorage` / `indexeddb`) |
+| **fromEventSource(url) / fromWebSocket(url)** | `{ latest, status, error, on, close }` (+ `send`) with reconnect/backoff    |
+| **navigate(href) / route()**                  | client-side routing in spa mode                                             |
+| **`<await for fallback catch>`**              | renders the fallback until the promise settles                              |
+| **`<for virtual={{ itemSize }}>`**            | windowed list: only the rows near the viewport exist                        |
+| **aether(?options)**                          | Middleware that discovers islands and serves client bundles                 |
 
 [`@404/aether`]: https://kyu.re/~snarl
 [snarl]: https://jsr.io/@july/snarl

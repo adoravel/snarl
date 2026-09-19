@@ -28,7 +28,16 @@ import { httpMethods } from "@july/snarl";
 import { scanDir } from "./scanner.ts";
 import { registerRoute } from "./registry.ts";
 import { collectDirAncestors, rateRouteSpecificity } from "./paths.ts";
-import type { LayoutModule, RootRouteMetadata, ScanEntry, ScanOptions } from "./types.ts";
+import type {
+	LayoutModule,
+	RegisterOptions,
+	RootRouteMetadata,
+	RouteTable,
+	ScanEntry,
+	ScanOptions,
+} from "./types.ts";
+
+export type * from "./types.ts";
 import { log } from "@july/snarl/verbosity";
 
 function wireNotFound(router: Router, rootMeta: RootRouteMetadata | undefined): void {
@@ -38,53 +47,65 @@ function wireNotFound(router: Router, rootMeta: RootRouteMetadata | undefined): 
 	router.config.onNotFound = (ctx) => ctx.html(NotFound({ ctx }) as any, { status: 404 });
 }
 
-/**
- * scans a directory for route files and registers them on the given router.
- * routes are sorted by specificity so more specific paths take precedence
- *
- * @example
- * ```ts
- * const app = createRouter();
- * await scanRoutes(app, { dir: "./routes", from: import.meta.url });
- * ```
- */
-export async function scanRoutes(
-	router: Router,
+/** scans a directory for route files and special files without registering anything */
+export async function scanRouteTable(
 	options: ScanOptions | string = "./routes",
-): Promise<void> {
+): Promise<RouteTable> {
 	const opts = typeof options === "string" ? { dir: options } : options;
 	const base = opts.from
 		? join(dirname(fromFileUrl(opts.from)), opts.dir)
 		: join(Deno.cwd(), opts.dir);
 
 	const entries: ScanEntry[] = [];
-	const dirMetas = new Map<string, RootRouteMetadata>();
+	const metas = new Map<string, RootRouteMetadata>();
+	await scanDir(base, base, entries, metas);
+	entries.sort((a, b) => rateRouteSpecificity(b.path) - rateRouteSpecificity(a.path));
+	return { base, entries, metas };
+}
 
-	log.raw(cyan(bold("\n  · scanning routes:")));
+/** the layouts wrapping an entry, root first */
+export function layoutsFor(table: RouteTable, entry: ScanEntry): LayoutModule[] {
+	return collectDirAncestors(entry.fsPath, table.base, table.metas)
+		.map((m) => m.layout)
+		.filter(Boolean) as LayoutModule[];
+}
+
+/** registers a scanned table on the router */
+export function registerRouteTable(
+	router: Router,
+	table: RouteTable,
+	options: RegisterOptions = {},
+): void {
+	const { base, entries, metas } = table;
 	const scanStart = performance.now();
 
-	await scanDir(base, base, entries, dirMetas);
-	entries.sort((a, b) => rateRouteSpecificity(b.path) - rateRouteSpecificity(a.path));
-	wireNotFound(router, dirMetas.get(base));
+	wireNotFound(router, metas.get(base));
 
 	const registered = new Set<string>();
 	if (entries.length) log.raw("");
 
-	for (const { path, fsPath, module } of entries) {
-		const ancestors = collectDirAncestors(fsPath, base, dirMetas);
+	for (const entry of entries) {
+		const { path, fsPath, module } = entry;
+		const ancestors = collectDirAncestors(fsPath, base, metas);
 		const layouts = ancestors.map((m) => m.layout).filter(Boolean) as LayoutModule[];
 		const middlewares = ancestors.flatMap((m) => m.middlewares);
 		const errorBoundary = ancestors.findLast((m) => m.errorBoundary)?.errorBoundary;
 
 		for (const method of httpMethods) {
-			const handler = module[method] ?? (method === "GET" ? module.default : undefined);
+			let handler = module[method] ?? (method === "GET" ? module.default : undefined);
+			let wrapping = layouts;
+			if (handler && method === "GET" && !module.GET && options.page) {
+				const page = options.page(handler, entry, layouts);
+				if (!page) continue;
+				({ handler, layouts: wrapping } = page);
+			}
 			if (handler) {
 				registerRoute(
 					router,
 					method,
 					path,
 					handler,
-					layouts,
+					wrapping,
 					middlewares,
 					errorBoundary,
 					fsPath,
@@ -102,4 +123,22 @@ export async function scanRoutes(
 			}ms\n`,
 		),
 	);
+}
+
+/**
+ * scans a directory for route files and registers them on the given router.
+ * routes are sorted by specificity so more specific paths take precedence
+ *
+ * @example
+ * ```ts
+ * const app = createRouter();
+ * await scanRoutes(app, { dir: "./routes", from: import.meta.url });
+ * ```
+ */
+export async function scanRoutes(
+	router: Router,
+	options: ScanOptions | string = "./routes",
+): Promise<void> {
+	log.raw(cyan(bold("\n  · scanning routes:")));
+	registerRouteTable(router, await scanRouteTable(options));
 }

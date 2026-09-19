@@ -13,7 +13,27 @@ interface Hydration {
 	consumed: Map<string, number>;
 	openers: Map<Comment, Comment>;
 
+	/** opening markers by text, in document order, with their closers */
+	starts: Map<string, Comment[]>;
+	consumedStarts: Map<string, number>;
+	ends: Map<Comment, Comment>;
+
+	/** how many elements had completed (in post-order) when each comment was met */
+	position: Map<Comment, number>;
+
+	/** element ranges claimed by lazy slots that haven't been built yet */
+	pending: Slot[];
+
 	mismatch: string | null;
+}
+
+/** a server-marked region whose content the client builds later than its siblings */
+export interface Slot {
+	start: Comment;
+	end: Comment;
+	/** the post-order indices of the elements between the markers */
+	from: number;
+	to: number;
 }
 
 let current: Hydration | null = null;
@@ -85,6 +105,9 @@ export function beginHydration(root: Element, skip: ReadonlySet<Node>): void {
 	const elements: Element[] = [];
 	const closers = new Map<string, Comment[]>();
 	const openers = new Map<Comment, Comment>();
+	const starts = new Map<string, Comment[]>();
+	const ends = new Map<Comment, Comment>();
+	const position = new Map<Comment, number>();
 	const open = new Map<string, Comment[]>();
 
 	(function walk(parent: Node) {
@@ -95,25 +118,45 @@ export function beginHydration(root: Element, skip: ReadonlySet<Node>): void {
 				walk(node);
 				elements.push(node as Element);
 			} else if (node.nodeType === Node.COMMENT_NODE) {
-				const data = (node as Comment).data;
+				const comment = node as Comment;
+				const data = comment.data;
+				position.set(comment, elements.length);
 
 				if (data.startsWith("/")) {
 					const kind = data.slice(1);
 					const opener = open.get(kind)?.pop();
-					if (opener) openers.set(node as Comment, opener);
+					if (opener) {
+						openers.set(comment, opener);
+						ends.set(opener, comment);
+					}
 					let list = closers.get(data);
 					if (!list) closers.set(data, list = []);
-					list.push(node as Comment);
+					list.push(comment);
 				} else {
 					let stack = open.get(data);
 					if (!stack) open.set(data, stack = []);
-					stack.push(node as Comment);
+					stack.push(comment);
+					let list = starts.get(data);
+					if (!list) starts.set(data, list = []);
+					list.push(comment);
 				}
 			}
 		}
 	})(root);
 
-	current = { elements, next: 0, closers, consumed: new Map(), openers, mismatch: null };
+	current = {
+		elements,
+		next: 0,
+		closers,
+		consumed: new Map(),
+		openers,
+		starts,
+		consumedStarts: new Map(),
+		ends,
+		position,
+		pending: [],
+		mismatch: null,
+	};
 }
 
 export function endHydration(): string | null {
@@ -136,10 +179,62 @@ export function claimElement(tag: string, raw = false): Element | null {
 		}
 	}
 
+	i = skipPending(current, i);
+
 	const candidate = elements[i];
 	if (candidate === undefined || candidate.localName !== tag) return null;
 	current.next = i + 1;
 	return candidate;
+}
+
+function skipPending(state: Hydration, index: number): number {
+	let moved = true;
+	while (moved) {
+		moved = false;
+		for (const slot of state.pending) {
+			if (index >= slot.from && index < slot.to) {
+				index = slot.to;
+				moved = true;
+			}
+		}
+	}
+	return index;
+}
+
+/**
+ * claims the next `<!--kind-->…<!--/kind-->` region in document order for a
+ * lazily built child
+ */
+export function claimSlot(kind = "slot"): Slot | null {
+	if (!current) return null;
+	const list = current.starts.get(kind);
+	const index = current.consumedStarts.get(kind) ?? 0;
+	const start = list?.[index];
+	const end = start && current.ends.get(start);
+	if (!start || !end) return null;
+	current.consumedStarts.set(kind, index + 1);
+
+	const slot: Slot = {
+		start,
+		end,
+		from: current.position.get(start)!,
+		to: current.position.get(end)!,
+	};
+	current.pending.push(slot);
+	return slot;
+}
+
+/** builds a slot's content with the element cursor inside its range, then carries on after it */
+export function buildSlot<T>(slot: Slot, build: () => T): T {
+	if (!current) return build();
+	current.pending = current.pending.filter((s) => s !== slot);
+	const saved = current.next;
+	current.next = slot.from;
+	try {
+		return build();
+	} finally {
+		current.next = Math.max(saved, slot.to);
+	}
 }
 
 export function claimBlock(kind: string): [start: Comment, end: Comment] | null {

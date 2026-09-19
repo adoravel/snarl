@@ -14,11 +14,12 @@ import type {
 } from "./types.ts";
 import { log } from "@july/snarl/verbosity";
 
-type SpecialAssigner = (meta: RootRouteMetadata, mod: any) => void;
+type SpecialAssigner = (meta: RootRouteMetadata, mod: any, fsPath: string) => void;
 
 const SPECIAL_FILE_HANDLERS: Record<string, SpecialAssigner> = {
-	layout: (meta, mod: LayoutModule) => {
+	layout: (meta, mod: LayoutModule, fsPath) => {
 		meta.layout = mod;
+		meta.files.layout = fsPath;
 	},
 	middleware: (meta, mod: MiddlewareModule) => {
 		const mw = mod.default;
@@ -26,11 +27,13 @@ const SPECIAL_FILE_HANDLERS: Record<string, SpecialAssigner> = {
 			meta.middlewares.push(...(Array.isArray(mw) ? mw : [mw]));
 		}
 	},
-	error: (meta, mod: ErrorModule) => {
+	error: (meta, mod: ErrorModule, fsPath) => {
 		meta.errorBoundary = mod;
+		meta.files.error = fsPath;
 	},
-	"404": (meta, mod: NotFoundModule) => {
+	"404": (meta, mod: NotFoundModule, fsPath) => {
 		meta.notFound = mod;
+		meta.files["404"] = fsPath;
 	},
 };
 
@@ -43,5 +46,5 @@ export async function applySpecialFile(meta: RootRouteMetadata, fsPath: string):
 		log.warn("imouto", `unrecognised special file "${name}", ignoring`);
 		return;
 	}
-	assign(meta, await import(toFileUrl(fsPath).href));
+	assign(meta, await import(toFileUrl(fsPath).href), fsPath);
 }

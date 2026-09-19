@@ -9,7 +9,7 @@ import { effectScope } from "../reactivity/mod.ts";
 import { deferMounts } from "../reactivity/lifecycle.ts";
 import { renderAsyncSlot } from "./async-slot.ts";
 import { beginHydration, endHydration, reconcileChildren } from "./hydration.ts";
-import { normaliseChildren } from "./jsx-runtime.ts";
+import { normaliseChildren, toNodes } from "./jsx-runtime.ts";
 
 export type IslandComponent<P = Record<string, unknown>> = (props: P) => Node | Node[] | null;
 
@@ -78,15 +78,18 @@ function extractSlotChildren(el: HTMLElement): SlotChildren {
 }
 
 interface Rendered {
-	result: Node | Node[] | Promise<Node | Node[] | null> | null;
+	result: unknown;
 	dispose: () => void;
 
 	/** runs the `onMount` callbacks collected during the render */
 	mounted: () => void;
 }
 
-function render(component: IslandComponent<any>, props: Record<string, unknown>): Rendered {
-	let result: Rendered["result"] = null;
+/** anything renderable: an island component, or a page composed by the router */
+export type RootComponent = (props: Record<string, unknown>) => unknown;
+
+function render(component: RootComponent, props: Record<string, unknown>): Rendered {
+	let result: unknown = null;
 	const [dispose, mounted] = deferMounts(() =>
 		effectScope(() => {
 			result = component(props);
@@ -97,10 +100,103 @@ function render(component: IslandComponent<any>, props: Record<string, unknown>)
 
 function reportRenderError(name: string, err: unknown): void {
 	console.error(
-		`aether: island "${name}" threw during hydration and was skipped. ` +
+		`aether: ${name} threw during hydration and was skipped. ` +
 			`Its server-rendered markup is left in place but will not be interactive.`,
 		err,
 	);
+}
+
+export interface AttachOptions {
+	/** how the root is called in warnings, e.g. `island "counter"` */
+	label: string;
+
+	/** subtrees inside the root that are adopted as-is and never claimed piecemeal */
+	skip?: ReadonlySet<Node>;
+}
+
+/**
+ * renders `component` into `el`: adopts the server markup already there if
+ * it lines up, otherwise renders on the client and replaces it. async
+ * results render into a slot. returns `null` if the component threw
+ *
+ * @internal shared by islands and the app root
+ */
+export function attach(
+	el: HTMLElement,
+	component: RootComponent,
+	props: Record<string, unknown>,
+	options: AttachOptions,
+): (() => void) | null {
+	const { label, skip = new Set<Node>() } = options;
+	let rendered: Rendered | undefined;
+	let adopted = false;
+
+	if (el.firstChild !== null) {
+		beginHydration(el, skip);
+		try {
+			rendered = render(component, props);
+			if (!isPromiseLike(rendered.result)) {
+				reconcileChildren(el, normaliseChildren(rendered.result));
+			}
+		} catch (err) {
+			endHydration();
+			reportRenderError(label, err);
+			return null;
+		}
+
+		const mismatch = endHydration();
+		if (isPromiseLike(rendered.result)) {
+			/* nothing to adopt yet */
+		} else if (mismatch) {
+			rendered.dispose();
+			rendered = undefined;
+			console.warn(
+				`aether: ${label} couldn't adopt its server markup (${mismatch}), ` +
+					`rendering it on the client instead`,
+			);
+		} else {
+			adopted = true;
+		}
+	}
+
+	if (!rendered) {
+		try {
+			rendered = render(component, props);
+		} catch (err) {
+			reportRenderError(label, err);
+			return null;
+		}
+	}
+
+	const { result, dispose, mounted } = rendered;
+	const controller = new AbortController();
+	const promiseLike = isPromiseLike(result);
+
+	const settled: Promise<unknown> = promiseLike
+		? result as unknown as Promise<unknown>
+		: Promise.resolve();
+
+	if (promiseLike) {
+		const slot = renderAsyncSlot(
+			(result as Promise<unknown>).then((value) => toNodes(value)),
+			{
+				signal: controller.signal,
+				onError: (err) => {
+					console.error(`aether: ${label}'s async render rejected:`, err);
+					return undefined;
+				},
+			},
+		);
+		el.replaceChildren(slot);
+	} else if (!adopted) {
+		el.replaceChildren(...toNodes(result));
+	}
+
+	mounted();
+	return () => {
+		controller.abort();
+		settled.finally(dispose).catch(() => {});
+	};
 }
 
 function mountOne(el: HTMLElement): void {
@@ -119,76 +215,10 @@ function mountOne(el: HTMLElement): void {
 	const props = parseProps(el);
 	if (slot.nodes !== undefined) props.children = slot.nodes;
 
-	let rendered: Rendered | undefined;
-	let adopted = false;
-
-	if (el.firstChild !== null) {
-		beginHydration(el, slot.inline);
-		try {
-			rendered = render(component, props);
-			if (!isPromiseLike(rendered.result)) {
-				reconcileChildren(el, normaliseChildren(rendered.result));
-			}
-		} catch (err) {
-			endHydration();
-			return reportRenderError(name, err);
-		}
-
-		const mismatch = endHydration();
-		if (isPromiseLike(rendered.result)) {
-			/* no-op */
-		} else if (mismatch) {
-			rendered.dispose();
-			rendered = undefined;
-			console.warn(
-				`aether: island "${name}" couldn't adopt its server markup (${mismatch}), ` +
-					`rendering it on the client instead`,
-			);
-		} else {
-			adopted = true;
-		}
-	}
-
-	if (!rendered) {
-		try {
-			rendered = render(component, props);
-		} catch (err) {
-			return reportRenderError(name, err);
-		}
-	}
-
-	const { result, dispose, mounted } = rendered;
-	const controller = new AbortController();
-	const promiseLike = isPromiseLike(result);
-
-	const settled: Promise<unknown> = promiseLike
-		? result as unknown as Promise<unknown>
-		: Promise.resolve();
-
-	const $dispose = () => {
-		controller.abort();
-		settled.finally(dispose).catch(() => {});
-	};
-	scopes.set(el, $dispose);
-
-	if (promiseLike) {
-		const slot = renderAsyncSlot(result, {
-			signal: controller.signal,
-			onError: (err) => {
-				console.error(`aether: island "${name}"'s async render rejected:`, err);
-				return undefined;
-			},
-		});
-		el.replaceChildren(slot);
-	} else if (!adopted) {
-		const resolved = result as Node | Node[] | null;
-		el.replaceChildren(
-			...(resolved == null ? [] : Array.isArray(resolved) ? resolved : [resolved]),
-		);
-	}
-
+	const dispose = attach(el, component, props, { label: `island "${name}"`, skip: slot.inline });
+	if (!dispose) return;
+	scopes.set(el, dispose);
 	el.removeAttribute("data-x-id");
-	mounted();
 }
 
 /** hydrates every unhydrated `[data-x-id]` element under `root` with a registered island */
@@ -222,6 +252,7 @@ export function hydrate(root: ParentNode = document): void {
 }
 
 export * from "./control-flow.ts";
+export * from "./router.ts";
 export { jsx } from "./jsx-runtime.ts";
 export * from "../env.ts";
 export * from "./css.ts";

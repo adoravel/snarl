@@ -25,6 +25,34 @@ export interface RootRouteMetadata {
 	middlewares: Middleware[];
 	errorBoundary?: ErrorModule;
 	notFound?: NotFoundModule;
+
+	/** where each special module came from, for anyone who needs to bundle them */
+	files: Partial<Record<"layout" | "error" | "404", string>>;
+}
+
+/** everything a scan found, before any of it is registered */
+export interface RouteTable {
+	/** absolute path of the routes directory */
+	base: string;
+	/** page/handler modules, most specific first */
+	entries: ScanEntry[];
+	/** per-directory special files, keyed by absolute directory path */
+	metas: Map<string, RootRouteMetadata>;
+}
+
+export interface RegisterOptions {
+	verbose?: boolean;
+
+	/**
+	 * transforms a page (a module's default export) before it's registered
+	 * as a GET route. `layouts` are the ones that would wrap it, root first.
+	 * return `null` to leave the page unregistered
+	 */
+	page?: (
+		handler: RouteHandler,
+		entry: ScanEntry,
+		layouts: LayoutModule[],
+	) => { handler: RouteHandler; layouts: LayoutModule[] } | null;
 }
 
 export interface ScanOptions {

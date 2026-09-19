@@ -95,7 +95,7 @@ export async function scanDir(
 	entries: ScanEntry[],
 	metas: Map<string, RootRouteMetadata>,
 ): Promise<void> {
-	const meta: RootRouteMetadata = { middlewares: [] };
+	const meta: RootRouteMetadata = { middlewares: [], files: {} };
 	metas.set(currentDir, meta);
 
 	const { routes, special, dirs } = await collectFiles(currentDir);

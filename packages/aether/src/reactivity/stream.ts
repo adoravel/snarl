@@ -241,7 +241,7 @@ export function fromWebSocket<In = unknown, Out = In>(
 	url: Url,
 	options: WebSocketOptions<In, Out> = {},
 ): Socket<In, Out> {
-	const serialize = options.serialise ?? ((message: Out) => JSON.stringify(message));
+	const serialise = options.serialise ?? ((message: Out) => JSON.stringify(message));
 	const queue: Out[] = [];
 	let socket: WebSocket | undefined;
 
@@ -267,7 +267,7 @@ export function fromWebSocket<In = unknown, Out = In>(
 	}));
 
 	const flush = () => {
-		while (socket && stream.isOpen() && queue.length) socket.send(serialize(queue.shift()!));
+		while (socket && stream.isOpen() && queue.length) socket.send(serialise(queue.shift()!));
 	};
 	stream.onOpened(flush);
 
