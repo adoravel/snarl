@@ -6,6 +6,16 @@
 
 import { Fragment, type JSX, jsx } from "./jsx-runtime.ts";
 
+function block(kind: string, children: JSX.Node): JSX.Element {
+	return jsx(Fragment as JSX.Fragment, {
+		children: [comment(kind), children, comment(`/${kind}`)],
+	});
+}
+
+function comment(data: string): JSX.Element {
+	return jsx(Fragment as JSX.Fragment, { dangerouslySetInnerHTML: { __html: `<!--${data}-->` } });
+}
+
 export interface ForProps<T> {
 	each: T[] | (() => T[]);
 	key: (item: T, index: number) => string | number;
@@ -30,7 +40,7 @@ export function For<T>(props: ForProps<T>): JSX.Element {
 		return [props.children(item, () => index)];
 	});
 
-	return jsx(Fragment as JSX.Fragment, { children: rendered });
+	return block("for", rendered);
 }
 
 export interface ShowProps<T = unknown> {
@@ -47,5 +57,5 @@ export function Show<T>(props: ShowProps<T>): JSX.Element {
 			: props.children)
 		: (props.fallback ?? null);
 
-	return jsx(Fragment as JSX.Fragment, { children: branch });
+	return block("show", branch);
 }

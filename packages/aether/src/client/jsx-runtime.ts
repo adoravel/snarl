@@ -6,6 +6,7 @@
 
 import { For, Show } from "./control-flow.ts";
 import { type Computed, effect, isReactive, isSignal, type Signal } from "../reactivity/mod.ts";
+import { claimElement, isHydrating, reconcileChildren } from "./hydration.ts";
 
 export const voidTags: ReadonlySet<string> = new Set([
 	"area",
@@ -152,9 +153,21 @@ export function normaliseChildren(raw: unknown): (Node | string)[] {
 	if (raw == null || raw === false || raw === true) return [];
 	if (isReactive(raw)) return [createTextNode(raw as () => unknown)];
 	if (Array.isArray(raw)) return raw.flatMap(normaliseChildren);
-	if (raw instanceof Node) return [raw];
+	if (raw instanceof Node) {
+		if (raw.nodeType === Node.DOCUMENT_FRAGMENT_NODE) return [...raw.childNodes];
+		return [raw];
+	}
 	if (typeof raw === "object") return [];
 	return [String(raw)];
+}
+
+export function toNodes(raw: unknown): Node[] {
+	const children = normaliseChildren(raw);
+	for (let i = 0; i < children.length; i++) {
+		const child = children[i];
+		if (typeof child === "string") children[i] = document.createTextNode(child);
+	}
+	return children as Node[];
 }
 
 function setStyleProp(el: HTMLElement | SVGElement, prop: string, v: unknown): void {
@@ -246,7 +259,7 @@ function describeElement(el: Element): string {
 	return `<${tag}> (#${seen} of this tag encountered so far. add an id to pin this down precisely)`;
 }
 
-function bindProp(el: HTMLElement, key: string, value: unknown): void {
+function bindProp(el: HTMLElement, key: string, value: unknown, adopted: boolean): void {
 	if (value == null) return;
 
 	if (key.startsWith("bind:")) {
@@ -280,6 +293,7 @@ function bindProp(el: HTMLElement, key: string, value: unknown): void {
 		return void effect(() => applyAttribute(el, key, (value as () => unknown)()));
 	}
 
+	if (adopted && typeof value !== "function") return;
 	applyAttribute(el, key, value);
 }
 
@@ -328,9 +342,16 @@ function bindTwoWay(el: HTMLElement | SVGElement, prop: string, accessor: unknow
 }
 
 function buildElement(tag: string, props: JSX.Props): HTMLElement | SVGElement {
-	const el = svgTags.has(tag)
-		? document.createElementNS(SVG_NS, tag) as SVGElement
-		: document.createElement(tag);
+	const claimed = claimElement(tag, props.dangerouslySetInnerHTML != null) as
+		| HTMLElement
+		| SVGElement
+		| null;
+
+	const adopted = claimed !== null;
+	const el = claimed ??
+		(svgTags.has(tag)
+			? document.createElementNS(SVG_NS, tag) as SVGElement
+			: document.createElement(tag));
 
 	for (const key in props) {
 		if (key === "children" || key === "dangerouslySetInnerHTML" || key === "key") continue;
@@ -345,24 +366,28 @@ function buildElement(tag: string, props: JSX.Props): HTMLElement | SVGElement {
 			const value = (props as Record<string, unknown>)[key];
 			if (isReactive(value)) {
 				effect(() => void el.classList.toggle(name, Boolean((value as () => unknown)())));
-			} else {
+			} else if (!adopted) {
 				el.classList.toggle(name, Boolean(value));
 			}
 			continue;
 		}
 
-		bindProp(el as HTMLElement, key, (props as Record<string, unknown>)[key]);
+		bindProp(el as HTMLElement, key, (props as Record<string, unknown>)[key], adopted);
 	}
 
 	if (props.dangerouslySetInnerHTML != null) {
 		if (props.children != null) {
 			throw new Error("aether: cannot use both children and dangerouslySetInnerHTML");
 		}
-		el.innerHTML = String(props.dangerouslySetInnerHTML.__html);
+		if (!adopted) el.innerHTML = String(props.dangerouslySetInnerHTML.__html);
 		return el;
 	}
 
-	if (!voidTags.has(tag)) el.append(...normaliseChildren(props.children));
+	if (voidTags.has(tag)) return el;
+
+	const children = normaliseChildren(props.children);
+	if (adopted) reconcileChildren(el, children);
+	else el.append(...children);
 	return el;
 }
 
@@ -378,10 +403,12 @@ export function jsx<P extends JSX.Props = JSX.Props>(
 	if (tag === "show") return Show(props as any);
 
 	if (tag === Fragment) {
+		if (isHydrating()) return toNodes(props.children);
 		const frag = document.createDocumentFragment();
 		frag.append(...normaliseChildren(props.children));
 		return frag;
 	}
+
 	if (typeof tag === "function") {
 		for (const key in props) {
 			if (key.startsWith("bind:")) {
@@ -394,6 +421,7 @@ export function jsx<P extends JSX.Props = JSX.Props>(
 		}
 		return tag(props);
 	}
+
 	return typeof tag === "string" ? buildElement(tag, props) : null;
 }
 
