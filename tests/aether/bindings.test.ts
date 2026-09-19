@@ -98,8 +98,8 @@ Deno.test("ssr: select options are matched by text, through <for> and <optgroup>
 	);
 	assertEquals(
 		html,
-		'<select><optgroup label="g"><option>one</option><option selected>two</option></optgroup>' +
-			"<option>three</option></select>",
+		'<select><optgroup label="g"><!--for--><option>one</option><option selected>two</option>' +
+			"<!--/for--></optgroup><option>three</option></select>",
 	);
 });
 

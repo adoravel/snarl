@@ -13,8 +13,60 @@ import {
 	type Signal,
 	signal,
 } from "../reactivity/mod.ts";
-import { normaliseChildren } from "./jsx-runtime.ts";
+import { toNodes } from "./jsx-runtime.ts";
 import type { JSX } from "./jsx-runtime.ts";
+import {
+	claimBlock,
+	expandBlocks,
+	isHydrating,
+	reconcileRange,
+	registerBlock,
+	removeNodes,
+	reportMismatch,
+} from "./hydration.ts";
+
+interface Block {
+	end: Comment;
+	/** holds the anchors (and content) until the parent inserts them somewhere real */
+	holder: DocumentFragment;
+	/** what the block returns to its parent */
+	result: JSX.Element;
+}
+
+function createBlock(kind: string): Block {
+	const start = document.createComment(kind);
+	const end = document.createComment(`/${kind}`);
+	const holder = document.createDocumentFragment();
+	holder.append(start, end);
+	registerBlock(start, end, holder);
+	return { end, holder, result: isHydrating() ? [start, end] : holder };
+}
+
+/** swaps in the server's anchors. must run after the block's first effect run */
+function adoptBlock(block: Block, kind: string, content: readonly Node[]): void {
+	const claimed = claimBlock(kind);
+	if (!claimed) {
+		reportMismatch(`no server markers for <${kind}>`);
+		return;
+	}
+	const [start, end] = claimed;
+	block.holder.replaceChildren();
+	registerBlock(start, end, block.holder);
+	block.end = end;
+	block.result = [start, end];
+	reconcileRange(start, end, content);
+}
+
+function place(block: Block, nodes: readonly Node[]): void {
+	const end = block.end;
+	const parent = end.parentNode ?? block.holder;
+	let cursor: Node = end;
+	for (let i = nodes.length - 1; i >= 0; i--) {
+		const node = nodes[i];
+		if (node.nextSibling !== cursor) parent.insertBefore(node, cursor);
+		cursor = node;
+	}
+}
 
 export interface ForProps<T> {
 	/** the list to render */
@@ -56,20 +108,18 @@ function readEach<T>(each: ForProps<T>["each"]): T[] {
  * ```
  */
 export function For<T>(props: ForProps<T>): JSX.Element {
-	const startAnchor = document.createComment("for");
-	const endAnchor = document.createComment("/for");
-	const frag = document.createDocumentFragment();
-	frag.append(startAnchor, endAnchor);
-
+	const block = createBlock("for");
 	const entries = new Map<string | number, Entry<T>>();
-	const owner = getActiveSub();
+	let hydrating = isHydrating();
+	let initial: Node[] | undefined;
 
+	const owner = getActiveSub();
 	const render = (item: T, index: Signal<number>): Pick<Entry<T>, "nodes" | "dispose"> => {
 		const previous = setActiveSub(owner);
 		try {
 			let nodes: Node[] = [];
 			const dispose = effectScope(() => {
-				nodes = normaliseChildren(props.children(item, () => index())) as Node[];
+				nodes = toNodes(props.children(item, () => index()));
 			});
 			return { nodes, dispose };
 		} finally {
@@ -80,9 +130,9 @@ export function For<T>(props: ForProps<T>): JSX.Element {
 	effect(() => {
 		const items = readEach(props.each);
 		const seen = new Set<string | number>();
-		let cursor: Node = endAnchor;
+		const ordered: Entry<T>[] = [];
 
-		for (let i = items.length - 1; i >= 0; i--) {
+		for (let i = 0; i < items.length; i++) {
 			const item = items[i];
 			const key = props.key(item, i);
 
@@ -105,30 +155,32 @@ export function For<T>(props: ForProps<T>): JSX.Element {
 				entry.index(i);
 				if (!Object.is(entry.item, item)) {
 					entry.dispose();
-					for (const node of entry.nodes) node.parentNode?.removeChild(node);
+					removeNodes(entry.nodes);
 					Object.assign(entry, render(item, entry.index));
 					entry.item = item;
 				}
 			}
-
-			for (let j = entry.nodes.length - 1; j >= 0; j--) {
-				const node = entry.nodes[j];
-				if (node.nextSibling !== cursor) {
-					(cursor.parentNode ?? frag).insertBefore(node, cursor);
-				}
-				cursor = node;
-			}
+			ordered.push(entry);
 		}
 
 		for (const [key, entry] of entries) {
 			if (seen.has(key)) continue;
 			entry.dispose();
-			for (const node of entry.nodes) node.parentNode?.removeChild(node);
+			removeNodes(entry.nodes);
 			entries.delete(key);
 		}
+
+		if (hydrating) {
+			hydrating = false;
+			initial = ordered.flatMap((entry) => entry.nodes);
+			return;
+		}
+
+		place(block, ordered.flatMap((entry) => expandBlocks(entry.nodes)));
 	});
 
-	return frag as unknown as JSX.Element;
+	if (initial) adoptBlock(block, "for", initial);
+	return block.result;
 }
 
 export interface ShowProps<T = unknown> {
@@ -146,16 +198,15 @@ export interface ShowProps<T = unknown> {
  * conditional rendering that swaps branches in place.
  */
 export function Show<T>(props: ShowProps<T>): JSX.Element {
-	const endAnchor = document.createComment("/show");
-	const frag = document.createDocumentFragment();
-	frag.append(document.createComment("show"), endAnchor);
-
+	const block = createBlock("show");
+	let hydrating = isHydrating();
+	let initial: Node[] | undefined;
 	let currentNodes: Node[] = [];
 
 	effect(() => {
 		const condition = typeof props.when === "function" ? (props.when as () => T)() : props.when;
 
-		for (const node of currentNodes) node?.parentNode?.removeChild(node);
+		removeNodes(currentNodes);
 
 		const branch = condition
 			? (typeof props.children === "function"
@@ -163,10 +214,17 @@ export function Show<T>(props: ShowProps<T>): JSX.Element {
 				: props.children)
 			: props.fallback;
 
-		currentNodes = normaliseChildren(branch) as Node[];
-		const parent = endAnchor.parentNode ?? frag;
-		for (const node of currentNodes) parent.insertBefore(node, endAnchor);
+		currentNodes = toNodes(branch);
+
+		if (hydrating) {
+			hydrating = false;
+			initial = currentNodes;
+			return;
+		}
+
+		place(block, expandBlocks(currentNodes));
 	});
 
-	return frag as unknown as JSX.Element;
+	if (initial) adoptBlock(block, "show", initial);
+	return block.result;
 }

@@ -4,10 +4,14 @@
  * SPDX-License-Identifier: MPL-2.0
  */
 
-import { type JSX, jsx } from "@july/snarl/jsx-runtime";
+import { Fragment, type JSX, jsx } from "@july/snarl/jsx-runtime";
 import { type IslandMeta, markIslandUsed } from "./registry.ts";
 import { isJsxElement } from "@july/snarl";
 import { isReactive } from "../reactivity/mod.ts";
+
+function comment(data: string): JSX.Element {
+	return jsx(Fragment, { dangerouslySetInnerHTML: { __html: `<!--${data}-->` } });
+}
 
 export interface IslandWrapperOptions {
 	/** wrapper element tag around the hydration marker. defaults to "div" */
@@ -33,7 +37,14 @@ export function island<P extends Record<string, unknown>>(
 		assertSerialisableProps(meta.id, serialisable);
 		markIslandUsed(meta.id);
 
-		const rendered = Component(props);
+		const rendered = Component(
+			children != null
+				? {
+					...props,
+					children: [comment("x-slot"), children as JSX.Node, comment("/x-slot")],
+				}
+				: props,
+		);
 		const slot = children != null
 			? jsx("template", { "data-x-slot": "", children: children as JSX.Node })
 			: null;

@@ -8,6 +8,8 @@ import { isPromiseLike } from "../promise.ts";
 import { effectScope } from "../reactivity/mod.ts";
 import { deferMounts } from "../reactivity/lifecycle.ts";
 import { renderAsyncSlot } from "./async-slot.ts";
+import { beginHydration, endHydration, reconcileChildren } from "./hydration.ts";
+import { normaliseChildren } from "./jsx-runtime.ts";
 
 export type IslandComponent<P = Record<string, unknown>> = (props: P) => Node | Node[] | null;
 
@@ -35,24 +37,70 @@ function parseProps(el: HTMLElement): Record<string, unknown> {
 	}
 }
 
-function extractSlotChildren(el: HTMLElement): Node[] | undefined {
-	const children = el.children;
-	const len = children.length;
+interface SlotChildren {
+	nodes: Node[] | undefined;
+	inline: Set<Node>;
+}
 
+function extractSlotChildren(el: HTMLElement): SlotChildren {
 	let template: HTMLTemplateElement | undefined;
-
-	for (let i = 0; i < len; i++) {
-		const child = children[i];
+	for (const child of el.children) {
 		if (child.tagName === "TEMPLATE" && child.hasAttribute("data-x-slot")) {
 			template = child as HTMLTemplateElement;
 			break;
 		}
 	}
+	template?.remove();
 
-	if (!template) return undefined;
+	const inline = new Set<Node>();
+	const walker = document.createTreeWalker(el, NodeFilter.SHOW_COMMENT);
+	let start: Node | null;
+	while ((start = walker.nextNode())) {
+		if ((start as Comment).data === "x-slot") break;
+	}
 
-	const nodes = [...template.content.childNodes];
-	return template.remove(), nodes;
+	if (start) {
+		let end = start.nextSibling;
+		while (end && !(end.nodeType === Node.COMMENT_NODE && (end as Comment).data === "/x-slot")) {
+			inline.add(end);
+			end = end.nextSibling;
+		}
+		if (end) {
+			(start as ChildNode).remove();
+			end.remove();
+			return { nodes: [...inline], inline };
+		}
+		inline.clear();
+	}
+
+	if (!template) return { nodes: undefined, inline };
+	return { nodes: [...template.content.childNodes], inline };
+}
+
+interface Rendered {
+	result: Node | Node[] | Promise<Node | Node[] | null> | null;
+	dispose: () => void;
+
+	/** runs the `onMount` callbacks collected during the render */
+	mounted: () => void;
+}
+
+function render(component: IslandComponent<any>, props: Record<string, unknown>): Rendered {
+	let result: Rendered["result"] = null;
+	const [dispose, mounted] = deferMounts(() =>
+		effectScope(() => {
+			result = component(props);
+		})
+	);
+	return { result, dispose, mounted };
+}
+
+function reportRenderError(name: string, err: unknown): void {
+	console.error(
+		`aether: island "${name}" threw during hydration and was skipped. ` +
+			`Its server-rendered markup is left in place but will not be interactive.`,
+		err,
+	);
 }
 
 function mountOne(el: HTMLElement): void {
@@ -67,34 +115,56 @@ function mountOne(el: HTMLElement): void {
 		return;
 	}
 
-	const slotChildren = extractSlotChildren(el);
+	const slot = extractSlotChildren(el);
 	const props = parseProps(el);
-	if (slotChildren !== undefined) props.children = slotChildren;
+	if (slot.nodes !== undefined) props.children = slot.nodes;
 
-	let result: Node | Node[] | Promise<Node | Node[] | null> | null = null;
-	let dispose: (() => void) | undefined;
-	let mounted: () => void;
+	let rendered: Rendered | undefined;
+	let adopted = false;
 
-	try {
-		[dispose, mounted] = deferMounts(() =>
-			effectScope(() => {
-				result = component(props);
-			})
-		);
-	} catch (err) {
-		return console.error(
-			`aether: island "${name}" threw during hydration and was skipped. ` +
-				`Its server-rendered markup is left in place but will not be interactive. ` +
-				`Other islands on this page are unaffected.`,
-			err,
-		);
+	if (el.firstChild !== null) {
+		beginHydration(el, slot.inline);
+		try {
+			rendered = render(component, props);
+			if (!isPromiseLike(rendered.result)) {
+				reconcileChildren(el, normaliseChildren(rendered.result));
+			}
+		} catch (err) {
+			endHydration();
+			return reportRenderError(name, err);
+		}
+
+		const mismatch = endHydration();
+		if (isPromiseLike(rendered.result)) {
+			/* no-op */
+		} else if (mismatch) {
+			rendered.dispose();
+			rendered = undefined;
+			console.warn(
+				`aether: island "${name}" couldn't adopt its server markup (${mismatch}), ` +
+					`rendering it on the client instead`,
+			);
+		} else {
+			adopted = true;
+		}
 	}
 
+	if (!rendered) {
+		try {
+			rendered = render(component, props);
+		} catch (err) {
+			return reportRenderError(name, err);
+		}
+	}
+
+	const { result, dispose, mounted } = rendered;
 	const controller = new AbortController();
 	const promiseLike = isPromiseLike(result);
+
 	const settled: Promise<unknown> = promiseLike
 		? result as unknown as Promise<unknown>
 		: Promise.resolve();
+
 	const $dispose = () => {
 		controller.abort();
 		settled.finally(dispose).catch(() => {});
@@ -110,7 +180,7 @@ function mountOne(el: HTMLElement): void {
 			},
 		});
 		el.replaceChildren(slot);
-	} else {
+	} else if (!adopted) {
 		const resolved = result as Node | Node[] | null;
 		el.replaceChildren(
 			...(resolved == null ? [] : Array.isArray(resolved) ? resolved : [resolved]),
