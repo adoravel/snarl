@@ -15,8 +15,21 @@ import {
 } from "../errors.ts";
 import { isJsxElement, type JSX, renderToString } from "../jsx-runtime.ts";
 import { type BodyReader, createBodyReader } from "./body.ts";
+import { entriesToObject, type Infer, type Schema } from "../validate.ts";
 import { createMultipartReader, type MultipartOptions, type MultipartResult } from "./multipart.ts";
 import { detectImageType, processImageBlob, processImageStream } from "./image.ts";
+
+export class QueryParams extends URLSearchParams {
+	/** validates the query as an object; throws a 422 with the issues if it doesn't fit */
+	parse<S extends Schema<unknown>>(schema: S): Infer<S> {
+		return schema.parse(entriesToObject(this)) as Infer<S>;
+	}
+
+	/** the query as a plain object. a repeated key becomes an array */
+	toObject(): Record<string, string | string[]> {
+		return entriesToObject(this);
+	}
+}
 
 const encoder = new TextEncoder();
 const DOCTYPE_RE = /^\s*<!doctype\b/i;
@@ -46,7 +59,7 @@ export class Context<Params = Record<string, string>> {
 	private _cookies?: CookieJar;
 	private _state?: Map<string | symbol, unknown>;
 	private _body?: BodyReader;
-	private _query?: URLSearchParams;
+	private _query?: QueryParams;
 	private _requestId?: string;
 	private _url?: URL;
 
@@ -72,9 +85,9 @@ export class Context<Params = Record<string, string>> {
 		return this._url ??= new URL(this.request.url);
 	}
 
-	/** the URL search params object */
-	get query(): URLSearchParams {
-		return this._query ??= new URLSearchParams(this.rawSearch);
+	/** the URL search params, plus `parse(schema)` and `toObject()` */
+	get query(): QueryParams {
+		return this._query ??= new QueryParams(this.rawSearch);
 	}
 
 	/** a unique identifier for this request */

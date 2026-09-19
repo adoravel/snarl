@@ -16,8 +16,10 @@ composable middleware system with automatic dependency resolution, and native st
 - first-class SSE and WebSocket support with abort-safe async iterables
 - lightweight server-side rendering with escaping, style objects, and fragment support
 - automatic JSON, form-urlencoded, and multipart file upload handling with size limits
-- a tiny schema validator (`v`) whose definitions are the types: `ctx.body.json(User)` validates,
-  narrows, and answers a 422 with every issue and its path
+- a tiny schema validator (`v`) whose definitions are the types: `ctx.body.json(User)`,
+  `ctx.body.form(Signup)` and `ctx.query.parse(Filters)` validate, narrow, and answer a 422 with
+  every issue and its path. `v.coerce` turns the strings a query or form carries into numbers,
+  booleans, dates and arrays
 - CORS, CSP, HSTS, referrer policy, and rate limiting as composable middleware
 - global error handling and cookie jar management
 

@@ -180,3 +180,133 @@ Deno.test("validate: refine, custom, lazy and records", () => {
 	assert(v.boolean().is(false) && !v.boolean().is("false"));
 	assert(v.any().is(undefined));
 });
+
+Deno.test("validate: coercion converts strings, plain schemas hand the input back untouched", () => {
+	const Filters = v({
+		page: v.coerce.number({ int: true, min: 1 }).default(1),
+		limit: v.coerce.number({ max: 100 }),
+		draft: v.coerce.boolean(),
+		since: v.coerce.date(),
+		tag: v.coerce.array(v.string()),
+		id: v.coerce.string(),
+	});
+	const _type: Equal<Infer<typeof Filters>, {
+		page: number;
+		limit: number;
+		draft: boolean;
+		since: Date;
+		tag: string[];
+		id: string;
+	}> = true;
+	assert(_type);
+
+	const out = Filters.parse({ limit: "50", draft: "on", since: "2026-01-02", tag: "a", id: 7 });
+	assertEquals(out, {
+		limit: 50,
+		draft: true,
+		since: new Date("2026-01-02"),
+		tag: ["a"],
+		id: "7",
+		page: 1,
+	});
+	assertEquals(
+		Filters.parse({ limit: 5, draft: false, since: out.since, tag: ["x", "y"], id: "a" }).tag,
+		["x", "y"],
+	);
+
+	const r = Filters.safeParse({ page: "0", limit: "", draft: "maybe", since: "nope", id: {} });
+	assert(!r.ok);
+	assertEquals(r.issues, [
+		{ path: ["page"], message: "expected at least 1" },
+		{ path: ["limit"], message: "expected a number, got string" },
+		{ path: ["draft"], message: "expected a boolean, got string" },
+		{ path: ["since"], message: "expected a date, got string" },
+		{ path: ["id"], message: "expected string, got object" },
+	]);
+
+	// nothing coerced → the very same object comes back
+	const Plain = v({ a: v.string(), b: v.array(v.number()) });
+	const input = { a: "x", b: [1] };
+	assert(Plain.parse(input) === input);
+	// something coerced → a copy, and the input is left alone
+	const Mixed = v({ a: v.string(), n: v.coerce.number() });
+	const mixed = { a: "x", n: "1" };
+	assertEquals(Mixed.parse(mixed), { a: "x", n: 1 });
+	assertEquals(mixed.n, "1");
+});
+
+Deno.test("validate: defaults fill missing keys and make them required in the type", () => {
+	const S = v({
+		role: v.default(v.enum(["admin", "member"]), "member"),
+		note: v.string().optional(),
+	});
+	const _type: Equal<Infer<typeof S>, { role: "admin" | "member"; note?: string | undefined }> =
+		true;
+	assert(_type);
+	assertEquals(S.parse({}), { role: "member" });
+	assertEquals(S.parse({ role: "admin", note: "x" }), { role: "admin", note: "x" });
+	assertEquals(S.safeParse({ role: "guest" }).ok, false);
+});
+
+Deno.test("validate: ctx.query.parse and ctx.body.form", async () => {
+	const Filters = v({
+		q: v.string().default(""),
+		page: v.coerce.number({ int: true }).default(1),
+		tag: v.coerce.array(v.string()),
+	});
+	const Signup = v({
+		name: v.string({ min: 1 }),
+		newsletter: v.coerce.boolean().default(false),
+		avatar: v.guard((x): x is File => x instanceof File).optional(),
+	});
+
+	const app = createRouter();
+	app.get("/posts", (ctx) => ctx.json(ctx.query.parse(Filters)));
+	app.post("/signup", async (ctx) => {
+		const form = await ctx.body.form(Signup);
+		return ctx.json({ ...form, avatar: form.avatar?.name });
+	});
+
+	const posts = await app.fetch(
+		new Request("http://localhost/posts?q=cats&page=3&tag=a&tag=b"),
+		mockInfo,
+	);
+	assertEquals(await posts.json(), { q: "cats", page: 3, tag: ["a", "b"] });
+	const none = await app.fetch(new Request("http://localhost/posts"), mockInfo);
+	assertEquals(await none.json(), { q: "", page: 1, tag: [] });
+	const bad = await app.fetch(new Request("http://localhost/posts?page=x"), mockInfo);
+	assertEquals(bad.status, 422);
+	assertEquals((await bad.json()).details, [{
+		path: ["page"],
+		message: "expected a number, got string",
+	}]);
+
+	const urlencoded = await app.fetch(
+		new Request("http://localhost/signup", {
+			method: "POST",
+			headers: { "content-type": "application/x-www-form-urlencoded" },
+			body: "name=l%C3%ADvia&newsletter=on",
+		}),
+		mockInfo,
+	);
+	assertEquals(await urlencoded.json(), { name: "lívia", newsletter: true });
+
+	const multipart = new FormData();
+	multipart.set("name", "k");
+	multipart.set("avatar", new File(["x"], "me.png", { type: "image/png" }));
+	const upload = await app.fetch(
+		new Request("http://localhost/signup", { method: "POST", body: multipart }),
+		mockInfo,
+	);
+	assertEquals(await upload.json(), { name: "k", newsletter: false, avatar: "me.png" });
+
+	const invalid = await app.fetch(
+		new Request("http://localhost/signup", {
+			method: "POST",
+			headers: { "content-type": "application/x-www-form-urlencoded" },
+			body: "name=",
+		}),
+		mockInfo,
+	);
+	assertEquals(invalid.status, 422);
+});
