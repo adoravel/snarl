@@ -52,6 +52,11 @@ function prefixSelector(sel: string, scope: string): string {
 	if (sel === ":scope") return scope || ":root";
 	sel = sel.replace(/:(root|scope)\b/g, scope);
 
+	if (sel.includes("&")) {
+		const root = scope || ":root";
+		return sel.replace(/"[^"]*"|'[^']*'|&/g, (m) => (m === "&" ? root : m));
+	}
+
 	if (sel.startsWith(scope)) return sel;
 
 	if (
@@ -61,8 +66,6 @@ function prefixSelector(sel: string, scope: string): string {
 		return sel;
 	}
 	if (/^::?-webkit-scrollbar/i.test(sel)) return sel;
-
-	if (sel.startsWith("&")) return sel;
 
 	return `${scope} ${sel}`;
 }

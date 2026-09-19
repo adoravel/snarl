@@ -21,6 +21,7 @@ export interface Css {
 	 * ```js
 	 * const root = css`
 	 *   :scope { display: flex; }
+	 *   &.active { outline: 1px solid; }
 	 *   .title { font-size: 2rem; }
 	 * `;
 	 *

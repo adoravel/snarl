@@ -322,7 +322,6 @@ function bindTwoWay(el: HTMLElement | SVGElement, prop: string, accessor: unknow
 		return;
 	}
 
-	// a <select> reports its selection through `change`
 	const eventName = prop === "value" && el.tagName === "SELECT" ? "change" : TWO_WAY_EVENT[prop];
 	if (!eventName) {
 		console.warn(
@@ -389,7 +388,6 @@ function buildElement(tag: string, props: JSX.Props): HTMLElement | SVGElement {
 		else el.append(...children);
 	}
 
-	// two-way bindings go last: a <select> only accepts a value once its <option>s exist
 	for (const [prop, accessor] of bindings) bindTwoWay(el, prop, accessor);
 	return el;
 }
