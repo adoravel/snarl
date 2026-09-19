@@ -20,7 +20,12 @@ async function bundle(
 		const registry = new IslandRegistry();
 		const meta = registry.register(() => null, `file://${dir}/island.tsx`, "default");
 		const serverOnly = options.serverOnly?.map((g) => `${relative(Deno.cwd(), dir)}/${g}`);
-		return await bundleIslands([meta.id], registry, { ...options, serverOnly });
+
+		return await bundleIslands([meta.id], registry, {
+			...options,
+			serverOnly,
+			esbuild: { logLevel: "silent" },
+		});
 	} finally {
 		await Deno.remove(dir, { recursive: true });
 	}

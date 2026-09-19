@@ -58,7 +58,7 @@ Deno.test("MutableResponse.from: wraps a real Response, preserving status/header
 	assertEquals(await wrapped.text(), "body");
 });
 
-Deno.test("MutableResponse.toResponse(): re-serializes cached text without consuming a stream twice", async () => {
+Deno.test("MutableResponse.toResponse(): re-serialises cached text without consuming a stream twice", async () => {
 	const res = new MutableResponse("x");
 	await res.text();
 	const out = res.toResponse();

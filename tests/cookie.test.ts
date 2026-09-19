@@ -35,7 +35,7 @@ Deno.test("parseCookies", async (t) => {
 	});
 });
 
-Deno.test("serializeCookie", async (t) => {
+Deno.test("serialiseCookie", async (t) => {
 	await t.step("defaults: Secure, HttpOnly, SameSite=Lax", () => {
 		assertEquals(serialiseCookie("s", "v"), "s=v; Secure; HttpOnly; SameSite=Lax");
 	});

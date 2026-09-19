@@ -115,7 +115,7 @@ function assertSerialisableProps(id: string, props: Record<string, unknown>): vo
 		for (const [ctor, label] of KNOWN_NON_SERIALISABLE) {
 			if (value instanceof ctor) {
 				throw new Error(
-					`aether: island "${id}" prop "${path}" is a ${label}, which serializes to "{}" and ` +
+					`aether: island "${id}" prop "${path}" is a ${label}, which serialises to "{}" and ` +
 						`silently loses its data. convert it before passing it to the island`,
 				);
 			}
