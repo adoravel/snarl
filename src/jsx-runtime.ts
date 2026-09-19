@@ -309,7 +309,8 @@ function renderJsx(element: JSX.Element, raw = false): string | Promise<string> 
 		if (name === "children" || name === "dangerouslySetInnerHTML" || name === "key") continue;
 
 		if (Object.prototype.hasOwnProperty.call(props, name)) {
-			html += " " + jsxAttr(name, props[name]);
+			const attr = jsxAttr(name, props[name]);
+			if (attr) html += " " + attr;
 		}
 	}
 	html += ">";

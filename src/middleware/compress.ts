@@ -63,6 +63,9 @@ export function compress(options: CompressOptions = {}): Middleware {
 		const contentType = state.headers.get("Content-Type");
 		if (!contentType || !compressibleTypes.some((t) => contentType.startsWith(t))) return state;
 
+		if (contentType.startsWith("text/event-stream")) return state;
+		if (state.headers.get("Cache-Control")?.includes("no-transform")) return state;
+
 		const declaredLength = state.headers.get("Content-Length");
 		if (declaredLength !== null) {
 			const length = Number(declaredLength);

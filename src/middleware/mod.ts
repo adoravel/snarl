@@ -13,3 +13,4 @@ export * from "./static-files.ts";
 export * from "./body-parser.ts";
 export * from "./compress.ts";
 export * from "./csrf.ts";
+export * from "./proxy.ts";
