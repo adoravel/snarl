@@ -47,5 +47,24 @@ export { flush, getActiveSub, setActiveSub, trigger, untracked } from "./engine.
 export type { Link, ReactiveNode } from "./types.ts";
 export type { ReactiveAccessor } from "./accessor.ts";
 export { sharedSignal } from "./shared.ts";
+export { createStore, type Persistence, type Store, type StoreOptions } from "./store.ts";
+export {
+	type EventSourceOptions,
+	fromEventSource,
+	fromWebSocket,
+	type ReconnectOptions,
+	type Socket,
+	type Stream,
+	type StreamOptions,
+	type StreamStatus,
+	type WebSocketOptions,
+} from "./stream.ts";
 export { type MountCallback, onCleanup, onMount } from "./lifecycle.ts";
+export {
+	type Fetcher,
+	type Resource,
+	resource,
+	type ResourceContext,
+	type ResourceOptions,
+} from "./resource.ts";
 export { reactive } from "./proxy.ts";
