@@ -131,7 +131,7 @@ function jsx<P extends JSX.Props = JSX.Props>(
 	const rendered = maybeRenderIsland(tag, props);
 	if (rendered) return rendered;
 
-	if (props == null) return snarl.jsx(tag, props);
+	if (props == null || typeof tag === "function") return snarl.jsx(tag, props, key);
 
 	const out: Record<string, unknown> = {};
 	const classToggles: string[] = [];
