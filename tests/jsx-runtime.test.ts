@@ -175,3 +175,82 @@ Deno.test("jsx: data attributes", async () => {
 	assertEquals(result.includes('data-x="1"'), true);
 	assertEquals(result.includes('data-y="2"'), true);
 });
+
+Deno.test("jsx: script children render verbatim", async () => {
+	const code = `if (a < b && c > d) { el.innerHTML = "<b>'hi'</b>"; }`;
+	const result = await renderToString(jsx("script", { children: code }));
+	assertEquals(result, `<script>${code}</script>`);
+});
+
+Deno.test("jsx: style children render verbatim", async () => {
+	const css = `a > b::before { content: "\\"'&'"; } .x { width: calc(1px + 2px); }`;
+	const result = await renderToString(jsx("style", { children: css }));
+	assertEquals(result, `<style>${css}</style>`);
+});
+
+Deno.test("jsx: script escapes closing tags and comment openers", async () => {
+	const result = await renderToString(
+		jsx("script", { children: `var x = "</script><script>alert(1)</SCRIPT >"; // <!--` }),
+	);
+	assertEquals(
+		result,
+		`<script>var x = "<\\/script><script>alert(1)<\\/SCRIPT >"; // <\\!--</script>`,
+	);
+});
+
+Deno.test("jsx: style escapes closing tags", async () => {
+	const result = await renderToString(
+		jsx("style", { children: `a::after { content: "</style><script>alert(1)</script>" }` }),
+	);
+	assertEquals(
+		result,
+		`<style>a::after { content: "<\\/style><script>alert(1)</script>" }</style>`,
+	);
+});
+
+Deno.test("jsx: raw text breakout split across children", async () => {
+	const result = await renderToString(
+		jsx("script", { children: ["x = '<", "/scr", "ipt><script>alert(1)</script>'"] }),
+	);
+	assertEquals(result, `<script>x = '<\\/script><script>alert(1)<\\/script>'</script>`);
+});
+
+Deno.test("jsx: raw text mode passes through fragments, components and promises", async () => {
+	const Config = (props: JSX.Props) => `window.cfg = ${props.json};`;
+	const result = await renderToString(
+		jsx("script", {
+			children: [
+				jsx(Fragment, { children: "/* <a> */ " }),
+				jsx(Config, { json: '{"a":"<b>"}' }),
+				Promise.resolve(" // </script"),
+			],
+		}),
+	);
+	assertEquals(result, `<script>/* <a> */ window.cfg = {"a":"<b>"}; // <\\/script</script>`);
+});
+
+Deno.test("jsx: elements nested in raw text mode escape their own children", async () => {
+	const result = await renderToString(
+		jsx("style", { children: ["a{}", jsx("b", { children: "<i>" })] }),
+	);
+	assertEquals(result, `<style>a{}<b>&lt;i&gt;</b></style>`);
+});
+
+Deno.test("jsx: uppercase raw text tags are treated the same", async () => {
+	const result = await renderToString(jsx("SCRIPT", { children: `"</script>"` }));
+	assertEquals(result, `<SCRIPT>"<\\/script>"</SCRIPT>`);
+});
+
+Deno.test("jsx: dangerouslySetInnerHTML in script is left untouched", async () => {
+	const result = await renderToString(
+		jsx("script", { dangerouslySetInnerHTML: { __html: "</script>" } }),
+	);
+	assertEquals(result, "<script></script></script>");
+});
+
+Deno.test("jsx: escapable raw text elements still html-encode", async () => {
+	const result = await renderToString(jsx("title", { children: "a < b & c" }));
+	assertEquals(result, "<title>a &lt; b &amp; c</title>");
+	const textarea = await renderToString(jsx("textarea", { children: "</textarea>" }));
+	assertEquals(textarea, "<textarea>&lt;/textarea&gt;</textarea>");
+});
