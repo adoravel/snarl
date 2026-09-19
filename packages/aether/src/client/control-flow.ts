@@ -13,8 +13,11 @@ import {
 	type Signal,
 	signal,
 } from "../reactivity/mod.ts";
-import { toNodes } from "./jsx-runtime.ts";
+import { jsx, toNodes } from "./jsx-runtime.ts";
 import type { JSX } from "./jsx-runtime.ts";
+import { connect, VirtualList, type VirtualOptions } from "./virtual.ts";
+
+export type { VirtualApi, VirtualOptions } from "./virtual.ts";
 import {
 	claimBlock,
 	expandBlocks,
@@ -81,6 +84,12 @@ export interface ForProps<T> {
 	 * itself re-rendering.
 	 */
 	children: (item: T, index: () => number) => JSX.Node;
+
+	/**
+	 * only render the items around the viewport. needs one element per item
+	 * for measured sizes; see `VirtualOptions`
+	 */
+	virtual?: VirtualOptions<T>;
 }
 
 interface Entry<T> {
@@ -108,6 +117,8 @@ function readEach<T>(each: ForProps<T>["each"]): T[] {
  * ```
  */
 export function For<T>(props: ForProps<T>): JSX.Element {
+	if (props.virtual) return VirtualFor(props, props.virtual);
+
 	const block = createBlock("for");
 	const entries = new Map<string | number, Entry<T>>();
 	let hydrating = isHydrating();
@@ -183,6 +194,62 @@ export function For<T>(props: ForProps<T>): JSX.Element {
 	return block.result;
 }
 
+function spacer(height: Signal<number>, edge: "top" | "bottom"): Node {
+	return jsx("div", {
+		"data-x-spacer": edge,
+		"aria-hidden": "true",
+		style: { height: height.map((h) => `${h}px`) },
+	}) as Node;
+}
+
+function VirtualFor<T>(props: ForProps<T>, options: VirtualOptions<T>): JSX.Element {
+	const block = createBlock("virtual");
+	const list = new VirtualList<T>(options, props.key);
+	const items = signal<T[]>([]);
+
+	effect(() => {
+		const all = readEach(props.each);
+		items(all);
+		list.setItems(all);
+	});
+
+	const top = spacer(list.topHeight, "top");
+	list.setTopSpacer(top as Element);
+
+	const measure = () => {
+		const elements: Element[] = [];
+		let node = top.nextSibling;
+		while (node && node !== bottom) {
+			if (node.nodeType === Node.ELEMENT_NODE) elements.push(node as Element);
+			node = node.nextSibling;
+		}
+		const { start, end } = list.window.peek();
+		const slice = items.peek();
+		if (elements.length !== Math.min(end, slice.length) - start) return;
+		list.measure(elements.map((el, i) => [props.key(slice[start + i], start + i), el]));
+	};
+
+	const inner = For<T>({
+		each: () => {
+			const { start, end } = list.window();
+			queueMicrotask(measure);
+			return items().slice(start, end);
+		},
+		key: (item, i) => props.key(item, list.window.peek().start + i),
+		children: (item, index) => props.children(item, () => list.window().start + index()),
+	});
+
+	const bottom = spacer(list.bottomHeight, "bottom");
+	const content = [top, ...toNodes(inner), bottom];
+	if (isHydrating()) adoptBlock(block, "virtual", content);
+	else place(block, expandBlocks(content));
+
+	connect(list, () => top);
+	options.ref?.(list.api);
+
+	return block.result;
+}
+
 export interface ShowProps<T = unknown> {
 	/** the condition. a signal/computed re-evaluates reactively */
 	when: T | (() => T);
@@ -226,5 +293,90 @@ export function Show<T>(props: ShowProps<T>): JSX.Element {
 	});
 
 	if (initial) adoptBlock(block, "show", initial);
+	return block.result;
+}
+
+export interface AwaitProps<T> {
+	/**
+	 * the value to wait for. a function (or signal) is tracked: a new promise
+	 * from it discards the pending one and shows `fallback` again
+	 */
+	for: Promise<T> | T | (() => Promise<T> | T);
+
+	/** shown until the promise settles */
+	fallback?: JSX.Node;
+
+	/** rendered if the promise rejects. without it the rejection is logged and `fallback` stays */
+	catch?: (error: unknown) => JSX.Node;
+
+	/** rendered with the resolved value */
+	children: (value: T) => JSX.Node;
+}
+
+
+export function Await<T>(props: AwaitProps<T>): JSX.Element {
+	const block = createBlock("await");
+	let hydrating = isHydrating();
+	let initial: Node[] | undefined;
+	let currentNodes: Node[] = [];
+	let disposeContent: Dispose | undefined;
+	let run = 0;
+
+	const owner = getActiveSub();
+	const renderOwned = (fn: () => JSX.Node): Node[] => {
+		const previous = setActiveSub(owner);
+		try {
+			let nodes: Node[] = [];
+			disposeContent = effectScope(() => {
+				nodes = toNodes(fn());
+			});
+			return nodes;
+		} finally {
+			setActiveSub(previous);
+		}
+	};
+	const swap = (nodes: Node[]) => {
+		removeNodes(currentNodes);
+		currentNodes = nodes;
+		place(block, expandBlocks(nodes));
+	};
+
+	effect(() => {
+		const source = typeof props.for === "function"
+			? (props.for as () => Promise<T> | T)()
+			: props.for;
+		const id = ++run;
+
+		disposeContent?.();
+		disposeContent = undefined;
+		removeNodes(currentNodes);
+		currentNodes = toNodes(props.fallback);
+
+		if (hydrating) {
+			hydrating = false;
+			initial = currentNodes;
+		} else {
+			place(block, expandBlocks(currentNodes));
+		}
+
+		Promise.resolve(source).then(
+			(value) => {
+				if (id === run) swap(renderOwned(() => props.children(value)));
+			},
+			(error) => {
+				if (id !== run) return;
+				if (props.catch) return swap(renderOwned(() => props.catch!(error)));
+				console.error("aether: <await> rejected and has no `catch`:", error);
+			},
+		);
+
+		return () => {
+			run++;
+			disposeContent?.();
+			disposeContent = undefined;
+		};
+	});
+
+	if (initial) adoptBlock(block, "await", initial);
 	return block.result;
 }

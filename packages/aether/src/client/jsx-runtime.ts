@@ -4,9 +4,16 @@
  * SPDX-License-Identifier: MPL-2.0
  */
 
-import { For, Show } from "./control-flow.ts";
+import { Await, For, Show } from "./control-flow.ts";
 import { type Computed, effect, isReactive, isSignal, type Signal } from "../reactivity/mod.ts";
-import { claimElement, isHydrating, reconcileChildren } from "./hydration.ts";
+import {
+	buildSlot,
+	claimElement,
+	claimSlot,
+	isHydrating,
+	reconcileChildren,
+	type Slot,
+} from "./hydration.ts";
 
 export const voidTags: ReadonlySet<string> = new Set([
 	"area",
@@ -149,9 +156,30 @@ function createTextNode(source: () => unknown): Text {
 	return node;
 }
 
+const LAZY = Symbol.for("aether.lazy");
+
+interface Lazy {
+	[LAZY]: () => unknown;
+	slot: Slot | null;
+}
+
+export function lazy(build: () => unknown): unknown {
+	return { [LAZY]: build, slot: claimSlot() } satisfies Lazy;
+}
+
+function isLazy(value: unknown): value is Lazy {
+	return typeof value === "object" && value !== null && LAZY in value;
+}
+
 export function normaliseChildren(raw: unknown): (Node | string)[] {
 	if (raw == null || raw === false || raw === true) return [];
 	if (isReactive(raw)) return [createTextNode(raw as () => unknown)];
+	if (isLazy(raw)) {
+		const { slot } = raw;
+		if (!slot) return normaliseChildren(raw[LAZY]());
+		const content = buildSlot(slot, () => normaliseChildren(raw[LAZY]()));
+		return [slot.start, ...content, slot.end];
+	}
 	if (Array.isArray(raw)) return raw.flatMap(normaliseChildren);
 	if (raw instanceof Node) {
 		if (raw.nodeType === Node.DOCUMENT_FRAGMENT_NODE) return [...raw.childNodes];
@@ -342,10 +370,14 @@ function bindTwoWay(el: HTMLElement | SVGElement, prop: string, accessor: unknow
 }
 
 function buildElement(tag: string, props: JSX.Props): HTMLElement | SVGElement {
-	const claimed = claimElement(tag, props.dangerouslySetInnerHTML != null) as
-		| HTMLElement
-		| SVGElement
-		| null;
+	const raw = props.dangerouslySetInnerHTML != null;
+	if (raw && props.children != null) {
+		throw new Error("aether: cannot use both children and dangerouslySetInnerHTML");
+	}
+
+	const children = raw || voidTags.has(tag) ? [] : normaliseChildren(props.children);
+
+	const claimed = claimElement(tag, raw) as HTMLElement | SVGElement | null;
 
 	const adopted = claimed !== null;
 	const el = claimed ??
@@ -377,13 +409,9 @@ function buildElement(tag: string, props: JSX.Props): HTMLElement | SVGElement {
 		bindProp(el as HTMLElement, key, (props as Record<string, unknown>)[key], adopted);
 	}
 
-	if (props.dangerouslySetInnerHTML != null) {
-		if (props.children != null) {
-			throw new Error("aether: cannot use both children and dangerouslySetInnerHTML");
-		}
-		if (!adopted) el.innerHTML = String(props.dangerouslySetInnerHTML.__html);
+	if (raw) {
+		if (!adopted) el.innerHTML = String(props.dangerouslySetInnerHTML!.__html);
 	} else if (!voidTags.has(tag)) {
-		const children = normaliseChildren(props.children);
 		if (adopted) reconcileChildren(el, children);
 		else el.append(...children);
 	}
@@ -402,6 +430,7 @@ export function jsx<P extends JSX.Props = JSX.Props>(
 
 	if (tag === "for") return For(props as any);
 	if (tag === "show") return Show(props as any);
+	if (tag === "await") return Await(props as any);
 
 	if (tag === Fragment) {
 		if (isHydrating()) return toNodes(props.children);
@@ -468,6 +497,7 @@ export declare namespace JSX {
 			dangerouslySetInnerHTML?: { __html: string };
 			for: Parameters<typeof For<any>>[0];
 			show: Parameters<typeof Show<any>>[0];
+			await: Parameters<typeof Await<any>>[0];
 		};
 	};
 }

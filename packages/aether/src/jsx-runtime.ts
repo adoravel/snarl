@@ -9,7 +9,14 @@ import * as snarl from "@july/snarl/jsx-runtime";
 import { island } from "./server/island.ts";
 import { getActiveIslandRegistry } from "./server/registry.ts";
 import { type Computed, isReactive, type Signal } from "./reactivity/mod.ts";
-import { For, type ForProps, Show, type ShowProps } from "./control-flow.ts";
+import {
+	Await,
+	type AwaitProps,
+	For,
+	type ForProps,
+	Show,
+	type ShowProps,
+} from "./control-flow.ts";
 
 //deno-lint-ignore ban-types
 const wrappers = new WeakMap<Function, ReturnType<typeof island>>();
@@ -127,6 +134,7 @@ function jsx<P extends JSX.Props = JSX.Props>(
 
 	if (tag === "for") return For(props as any);
 	if (tag === "show") return Show(props as any);
+	if (tag === "await") return Await(props as any);
 
 	const rendered = maybeRenderIsland(tag, props);
 	if (rendered) return rendered;
@@ -232,6 +240,7 @@ export declare namespace JSX {
 		& {
 			show: ShowProps<any>;
 			for: ForProps<any>;
+			await: AwaitProps<any>;
 		}
 		& ReactiveExtensions<snarl.JSX.IntrinsicElements>;
 }
