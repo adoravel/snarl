@@ -66,6 +66,51 @@ function finaliseGroupBinding(
 	}
 }
 
+/** what the browser would use as an `<option>`'s value: its `value` attribute, else its text */
+function optionValue(props: JSX.Props): string | undefined {
+	if (props.value != null) return String(props.value);
+
+	let text = "";
+	const visit = (node: unknown): boolean => {
+		if (node == null || typeof node === "boolean") return true;
+		if (typeof node === "string" || typeof node === "number") return (text += node, true);
+		if (Array.isArray(node)) return node.every(visit);
+		return false;
+	};
+	return visit(props.children) ? text : undefined;
+}
+
+/**
+ * `value` on a `<select>` is not an html attribute: the selection lives on
+ * its `<option>`s. this marks the ones matching a `bind:value` as `selected`,
+ * looking through arrays, fragments (`<for>` output) and `<optgroup>`s.
+ * options produced by components can't be seen without rendering and are
+ * left alone
+ */
+function selectOptions(children: unknown, selected: unknown): unknown {
+	const matches = Array.isArray(selected)
+		? (value: string) => selected.some((v) => String(v) === value)
+		: (value: string) => String(selected ?? "") === value;
+
+	const visit = (node: unknown): unknown => {
+		if (Array.isArray(node)) return node.map(visit);
+		if (!snarl.isJsxElement(node)) return node;
+
+		const { tag, props } = node;
+		if (tag === "option") {
+			const value = optionValue(props);
+			return value !== undefined && matches(value)
+				? snarl.jsx("option", { ...props, selected: true })
+				: node;
+		}
+		if (tag === "optgroup" || tag === snarl.Fragment) {
+			return snarl.jsx(tag, { ...props, children: visit(props.children) as JSX.Node });
+		}
+		return node;
+	};
+	return visit(children);
+}
+
 function finaliseClasses(classToggles: string[], out: Record<string, unknown>) {
 	if (classToggles.length) {
 		out.class = [out.class, ...classToggles].filter(Boolean).join(" ");
@@ -105,6 +150,12 @@ function jsx<P extends JSX.Props = JSX.Props>(
 
 	finaliseGroupBinding(groupState, out);
 	finaliseClasses(classToggles, out);
+
+	if (tag === "select" && "bind:value" in props) {
+		const selected = out.value;
+		delete out.value;
+		out.children = selectOptions(out.children, selected);
+	}
 
 	return snarl.jsx(tag, out, key);
 }

@@ -308,7 +308,8 @@ function bindTwoWay(el: HTMLElement | SVGElement, prop: string, accessor: unknow
 		return;
 	}
 
-	const eventName = TWO_WAY_EVENT[prop];
+	// a <select> reports its selection through `change`
+	const eventName = prop === "value" && el.tagName === "SELECT" ? "change" : TWO_WAY_EVENT[prop];
 	if (!eventName) {
 		console.warn(
 			`aether: bind:${prop} on ${
@@ -332,11 +333,13 @@ function buildElement(tag: string, props: JSX.Props): HTMLElement | SVGElement {
 		? document.createElementNS(SVG_NS, tag) as SVGElement
 		: document.createElement(tag);
 
+	const bindings: [prop: string, accessor: unknown][] = [];
+
 	for (const key in props) {
 		if (key === "children" || key === "dangerouslySetInnerHTML" || key === "key") continue;
 
 		if (key.startsWith("bind:")) {
-			bindTwoWay(el, key.slice(5), (props as Record<string, unknown>)[key]);
+			bindings.push([key.slice(5), (props as Record<string, unknown>)[key]]);
 			continue;
 		}
 
@@ -359,10 +362,12 @@ function buildElement(tag: string, props: JSX.Props): HTMLElement | SVGElement {
 			throw new Error("aether: cannot use both children and dangerouslySetInnerHTML");
 		}
 		el.innerHTML = String(props.dangerouslySetInnerHTML.__html);
-		return el;
+	} else if (!voidTags.has(tag)) {
+		el.append(...normaliseChildren(props.children));
 	}
 
-	if (!voidTags.has(tag)) el.append(...normaliseChildren(props.children));
+	// two-way bindings go last: a <select> only accepts a value once its <option>s exist
+	for (const [prop, accessor] of bindings) bindTwoWay(el, prop, accessor);
 	return el;
 }
 
