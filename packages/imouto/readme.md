@@ -9,6 +9,7 @@ a minimal full-stack web framework built on [snarl](https://jsr.io/@july/snarl)
 - `_middleware.ts` applies middleware to all routes in a directory, `_error.tsx` provides error
   boundaries, `_404.tsx` handles missing routes
 - `<Head>` component collects `<title>`, `<meta>`, `<link>`, and `<script>` tags
+- `build()` renders the whole site to static files for hosts that only serve them
 
 ## quick start
 
@@ -36,3 +37,25 @@ routes/
 
 [`@404/imouto`]: https://kyu.re/~snarl
 [snarl]: https://jsr.io/@july/snarl
+
+## static sites
+
+```ts
+import { build, createApp } from "@404/imouto";
+
+const app = await createApp({ routesDir: "./routes" });
+await build(app, { routesDir: "./routes", outDir: "./dist" });
+```
+
+| routes                   | dist                                           |
+| :----------------------- | :--------------------------------------------- |
+| `mod.tsx`                | `index.html`                                   |
+| `about.tsx`              | `about/index.html`                             |
+| `blog/[slug].tsx`        | one page per url from its `staticPaths` export |
+| `_404.tsx`               | `404.html`                                     |
+| `feed.xml.ts` (`GET`)    | `feed.xml`                                     |
+| `api/[id].ts` (no paths) | skipped, with a warning                        |
+
+a route with parameters lists its pages: `export const staticPaths = () => ["/blog/hello"]` (an
+array, or a function that may be async). links between pages are followed by default (`crawl: false`
+to render only what the routes name), and `paths: [...]` adds urls by hand.
