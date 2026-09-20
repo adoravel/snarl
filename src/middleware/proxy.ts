@@ -5,6 +5,7 @@
  */
 
 import type { Context, Middleware } from "../context/mod.ts";
+import { BadRequestError } from "../errors.ts";
 import { log } from "../verbosity.ts";
 
 export interface ProxyCookieRewrite {
@@ -82,9 +83,8 @@ function rewriteCookie(cookie: string, rules: ProxyCookieRewrite): string {
 	return out.join("; ");
 }
 
-function joinPaths(base: string, path: string): string {
-	if (base.endsWith("/")) base = base.slice(0, -1);
-	return `${base}${path.startsWith("/") ? path : `/${path}`}`;
+function under(path: string, mount: string): boolean {
+	return path === mount || path.startsWith(`${mount}/`);
 }
 
 /**
@@ -102,16 +102,19 @@ function joinPaths(base: string, path: string): string {
 export function proxy(target: string | URL, options: ProxyOptions = {}): Middleware {
 	const upstream = new URL(target);
 	const prefix = options.prefix?.replace(/\/+$/, "") ?? "";
+	const base = upstream.pathname.replace(/\/+$/, "");
 	const doFetch = options.fetch ?? fetch;
 
 	function upstreamUrl(ctx: Context): URL {
-		let path = prefix ? ctx.path.slice(prefix.length) || "/" : ctx.path;
+		const incoming = ctx.url.pathname;
+		let path = prefix ? incoming.slice(prefix.length) || "/" : incoming;
 		if (options.rewrite) path = options.rewrite(path, ctx);
 
 		const url = new URL(upstream);
-		url.pathname = joinPaths(upstream.pathname, path);
+		url.pathname = `${base}${path.startsWith("/") ? path : `/${path}`}`;
 		url.search = ctx.url.search;
 
+		if (base && !under(url.pathname, base)) throw new BadRequestError("invalid path");
 		return url;
 	}
 
@@ -179,12 +182,13 @@ export function proxy(target: string | URL, options: ProxyOptions = {}): Middlew
 	}
 
 	return async (ctx, next) => {
-		if (prefix && ctx.path !== prefix && !ctx.path.startsWith(`${prefix}/`)) return next();
+		if (prefix && !under(ctx.url.pathname, prefix)) return next();
 
 		if (options.websocket && ctx.request.headers.get("upgrade")?.toLowerCase() === "websocket") {
 			return bridgeWebSocket(ctx);
 		}
 
+		const url = upstreamUrl(ctx);
 		const method = ctx.request.method;
 		const hasBody = method !== "GET" && method !== "HEAD" && ctx.request.body !== null;
 		const signal = options.timeout
@@ -193,7 +197,7 @@ export function proxy(target: string | URL, options: ProxyOptions = {}): Middlew
 
 		let response: Response;
 		try {
-			response = await doFetch(upstreamUrl(ctx), {
+			response = await doFetch(url, {
 				method,
 				headers: upstreamHeaders(ctx),
 				body: hasBody ? ctx.request.body : undefined,

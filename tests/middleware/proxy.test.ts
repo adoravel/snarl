@@ -217,3 +217,74 @@ Deno.test("proxy: bridges websocket upgrades", async () => {
 		await up.server.shutdown();
 	}
 });
+
+function recordingFetch(): { seen: string[]; fetch: typeof fetch } {
+	const seen: string[] = [];
+	return {
+		seen,
+		fetch: (input) => {
+			seen.push(new URL(input instanceof Request ? input.url : input).pathname);
+			return Promise.resolve(new Response("ok"));
+		},
+	};
+}
+
+async function rawRequest(port: number, target: string, headers = ""): Promise<string> {
+	const conn = await Deno.connect({ port });
+	await conn.write(
+		new TextEncoder().encode(
+			`GET ${target} HTTP/1.1\r\nHost: localhost\r\n${headers}Connection: close\r\n\r\n`,
+		),
+	);
+	const status = (await new Response(conn.readable).text()).split("\r\n")[0];
+	return status;
+}
+
+Deno.test("proxy: dot segments on the wire can't escape the prefix or the upstream base", async () => {
+	const { seen, fetch: spy } = recordingFetch();
+	const app = createRouter();
+	app.use(proxy("http://upstream.local/public", {
+		prefix: "/api",
+		rewrite: (p) => `/_matrix${p}`,
+		websocket: true,
+		fetch: spy,
+	}));
+	const server = Deno.serve({ port: 0, onListen() {} }, app.fetch);
+
+	try {
+		assertEquals(await rawRequest(server.addr.port, "/api/v3/sync"), "HTTP/1.1 200 OK");
+		assertEquals(seen, ["/public/_matrix/v3/sync"]);
+
+		for (
+			const target of [
+				"/api/../_synapse/admin/v1/users",
+				"/api/../../internal",
+				"/api/%2e%2e/%2e%2e/internal",
+				"/api/x/.%2e/%2e./escape",
+			]
+		) {
+			assertEquals(await rawRequest(server.addr.port, target), "HTTP/1.1 404 Not Found", target);
+		}
+		const ws = await rawRequest(server.addr.port, "/api/%2e%2e/ws", "Upgrade: websocket\r\n");
+		assertEquals(ws, "HTTP/1.1 404 Not Found");
+		assertEquals(seen.length, 1, "nothing reached the upstream");
+	} finally {
+		await server.shutdown();
+	}
+});
+
+Deno.test("proxy: a rewrite that leaves the upstream base is refused", async () => {
+	const { seen, fetch: spy } = recordingFetch();
+	const app = createRouter();
+	app.use(
+		proxy("http://upstream.local/public", {
+			prefix: "/api",
+			rewrite: (p) => `/../${p}`,
+			fetch: spy,
+		}),
+	);
+
+	const res = await app.fetch(new Request("http://example.com/api/thing"), mockInfo);
+	assertEquals(res.status, 400);
+	assertEquals(seen, []);
+});
