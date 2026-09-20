@@ -17,7 +17,7 @@ const METHOD_COLOURS: Record<Method, typeof dim> = {
 	OPTIONS: cyan,
 };
 
-export const methodColour = (method: Method) => METHOD_COLOURS[method] ?? dim;
+const methodColour = (method: Method) => METHOD_COLOURS[method] ?? dim;
 
 export function formatRoute(method: Method, path: string): string {
 	const isLarge = method === "OPTIONS" || method === "DELETE";

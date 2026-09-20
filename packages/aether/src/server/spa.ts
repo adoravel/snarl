@@ -5,7 +5,7 @@
  */
 
 import type { Context, Middleware, MutableResponse } from "@july/snarl";
-import { injectIntoBody } from "@404/varnish";
+import { injectIntoBody } from "@404/imouto";
 import {
 	boring,
 	type LayoutModule,
@@ -66,7 +66,7 @@ export function buildSpaManifest(table: RouteTable): SpaBundle {
 	return { routes, notFound: root?.files["404"] };
 }
 
-export function buildSpaEntrySource(manifest: SpaBundle): string {
+function buildSpaEntrySource(manifest: SpaBundle): string {
 	const imports: string[] = [`import { mountSpa } from "@404/aether/client";`];
 	const names = new Map<string, string>();
 	const nameOf = (path: string) => {

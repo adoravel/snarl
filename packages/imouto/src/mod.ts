@@ -12,4 +12,5 @@ export * from "./app.ts";
 export * from "./build.ts";
 export * from "./hash/mod.ts";
 export * from "./jsx-runtime.ts";
-export * from "@404/varnish";
+export * from "./inject.ts";
+export * from "./scope.ts";

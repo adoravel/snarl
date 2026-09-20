@@ -63,13 +63,6 @@ export async function scanRouteTable(
 	return { base, entries, metas };
 }
 
-/** the layouts wrapping an entry, root first */
-export function layoutsFor(table: RouteTable, entry: ScanEntry): LayoutModule[] {
-	return collectDirAncestors(entry.fsPath, table.base, table.metas)
-		.map((m) => m.layout)
-		.filter(Boolean) as LayoutModule[];
-}
-
 /** registers a scanned table on the router */
 export function registerRouteTable(
 	router: Router,

@@ -24,7 +24,7 @@ const LOADER_MAP: Record<string, "ts" | "tsx" | "js" | "jsx"> = {
 
 const ANALYSIS_CACHE = new Map<string, Awaited<ReturnType<typeof analyseIslandSource>>>();
 
-export function extractImportSpecifiers(ast: AstNode): string[] {
+function extractImportSpecifiers(ast: AstNode): string[] {
 	const specs: string[] = [];
 
 	walk(ast, (node: AstNode) => {
@@ -38,7 +38,7 @@ export function extractImportSpecifiers(ast: AstNode): string[] {
 	return specs;
 }
 
-export function hasComponentExport(ast: AstNode): boolean {
+function hasComponentExport(ast: AstNode): boolean {
 	const isComponentName = (name?: string) => !!name && /^[A-Z]/.test(name);
 	let found = false;
 

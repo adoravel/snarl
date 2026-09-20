@@ -25,7 +25,7 @@ import {
 } from "./registry.ts";
 import { log } from "@july/snarl/verbosity";
 import { boring } from "@404/imouto";
-import { injectIntoBody } from "@404/varnish";
+import { injectIntoBody } from "@404/imouto";
 
 const CACHE_CONTROL_IMMUTABLE = "public, max-age=31536000, immutable";
 const ENTRY_ROUTE_RE = /^\/_aether\/entry\/([A-Za-z0-9_,-]+)\.([0-9a-z]+)\.js$/;
@@ -41,7 +41,7 @@ export interface AetherOptions extends AetherServeOptions {
 	hmr?: boolean;
 }
 
-export class IslandBundleCache {
+class IslandBundleCache {
 	readonly compiled: Map<string, string>;
 	#hashByNameSet = new Map<string, string>();
 	#pending = new Map<string, Promise<{ code: string; hash: string }>>();

@@ -14,7 +14,7 @@ import {
 	renderToString,
 } from "@july/snarl";
 import { requireContext } from "./mod.ts";
-import { injectIntoHead } from "@404/varnish";
+import { injectIntoHead } from "./inject.ts";
 
 const HEAD_STORE = Symbol("imouto.head");
 

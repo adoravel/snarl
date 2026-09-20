@@ -70,6 +70,7 @@ function getRouteOutputPath(path: string, html: boolean): string {
 
 async function getPaths(entry: ScanEntry): Promise<string[] | null> {
 	const module = entry.module as { staticPaths?: StaticPaths };
+
 	if (!entry.module.default && !entry.module.GET) return null;
 	if (!isDynamic(entry.path)) return [entry.path];
 
@@ -79,9 +80,9 @@ async function getPaths(entry: ScanEntry): Promise<string[] | null> {
 	return paths ?? null;
 }
 
-/** same-origin urls a page references, as paths. others are left to the browser */
 function getReferencedPaths(html: string, origin: string): string[] {
 	const out = new Set<string>();
+
 	for (const match of html.matchAll(ATTR_URL_RE)) {
 		const raw = match[1] ?? match[2];
 		if (!raw || raw.startsWith("#") || /^(?:data|mailto|tel|javascript):/i.test(raw)) continue;
@@ -223,5 +224,6 @@ export async function build(app: Router, options: BuildOptions = {}): Promise<Bu
 			}ms`,
 		),
 	);
+
 	return result;
 }

@@ -65,7 +65,7 @@ interface ResolvedSpecifier {
 	namespace?: "https" | "http" | "file" | "jsr" | "npm";
 }
 
-export function resolveTargetUrl(relativeTarget: string): URL {
+function resolveTargetUrl(relativeTarget: string): URL {
 	const rootUrl = new URL("../", import.meta.url).href;
 	return new URL(relativeTarget, rootUrl);
 }

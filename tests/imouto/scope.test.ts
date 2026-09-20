@@ -5,7 +5,7 @@
  */
 
 import { assertEquals } from "@std/assert";
-import { scopeCss } from "@404/varnish";
+import { scopeCss } from "@404/imouto";
 
 Deno.test("scopeCss: plain selectors become descendants, :scope is the root", () => {
 	assertEquals(

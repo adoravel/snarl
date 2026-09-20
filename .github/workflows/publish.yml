@@ -4,13 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       package:
-        description: "Package to publish (all, snarl, varnish, imouto, aether)"
+        description: "Package to publish (all, snarl, imouto, aether)"
         required: true
         type: choice
         options:
           - all
           - snarl
-          - varnish
           - imouto
           - aether
         default: "all"

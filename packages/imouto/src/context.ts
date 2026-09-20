@@ -4,30 +4,19 @@
  * SPDX-License-Identifier: MPL-2.0
  */
 
-/**
- * @module context
- */
-
 import { AsyncLocalStorage } from "node:async_hooks";
 import { Context, Middleware, MiddlewarePriority, provideMiddleware } from "@july/snarl";
 
 const storage = new AsyncLocalStorage<Context>();
 
-/**
- * retrieves the current request context.
-
- * returns `undefined` if called outside of a request lifecycle
- * (e.g. at module load time or in a background task)
- */
+/** retrieves the current request context */
 export function getContext(): Context | undefined {
 	return storage.getStore();
 }
 
-/**
- * retrieves the current request context, throwing if unavailable
- */
+/** retrieves the current request context, throwing if unavailable */
 export function requireContext(
-	message: string = "no active request context; are you outside a request handler?",
+	message: string = "no active request context; are you outside a request handler, mate?",
 ): Context {
 	const ctx = storage.getStore();
 	if (!ctx) throw new Error(message);

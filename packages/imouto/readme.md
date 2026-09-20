@@ -1,15 +1,6 @@
 # [`@404/imouto`]
 
-a minimal full-stack web framework built on [snarl](https://jsr.io/@july/snarl)
-
-## features
-
-- file-based routing. supports dynamic params (`[id].tsx` → `/blog/:id`), catch-all routes
-  (`[...slug].tsx`), and nested directories
-- `_middleware.ts` applies middleware to all routes in a directory, `_error.tsx` provides error
-  boundaries, `_404.tsx` handles missing routes
-- `<Head>` component collects `<title>`, `<meta>`, `<link>`, and `<script>` tags
-- `build()` renders the whole site to static files for hosts that only serve them
+a lightweight full-stack web framework built on [snarl](https://jsr.io/@july/snarl)
 
 ## quick start
 
@@ -59,3 +50,16 @@ await build(app, { routesDir: "./routes", outDir: "./dist" });
 a route with parameters lists its pages: `export const staticPaths = () => ["/blog/hello"]` (an
 array, or a function that may be async). links between pages are followed by default (`crawl: false`
 to render only what the routes name), and `paths: [...]` adds urls by hand.
+
+## api
+
+| Export                              | Description                                                               |
+| :---------------------------------- | :------------------------------------------------------------------------ |
+| **createApp(options?)**             | a router with context, scoped css, head, injection and static files wired |
+| **scanRoutes(router, dir)**         | file-based routes; `scanRouteTable` + `registerRouteTable` split it       |
+| **css\`…\`**, **styled.tag\`…\`**   | scoped stylesheets and components carrying them                           |
+| **scopedStyling()**                 | `scopedCss()` (serves `/_css/<hash>.css`) + `styleScopeInjection()`       |
+| **scopeCss(css, scope)**            | the css scoping transform on its own                                      |
+| **injectIntoHead / injectIntoBody** | queue markup for `htmlInjection()` to splice into the response            |
+| **`<Head>`**                        | collects `<title>`, `<meta>`, `<link>` and `<script>` from a render       |
+| **build(app, options?)**            | renders the site to static files                                          |

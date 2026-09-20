@@ -19,7 +19,7 @@ import {
 	staticFiles,
 } from "@july/snarl";
 import { scanRoutes } from "./mod.ts";
-import { htmlInjection } from "@404/varnish";
+import { htmlInjection } from "./inject.ts";
 import { dim } from "@std/fmt/colors";
 import { log } from "@july/snarl/verbosity";
 import { preflightPermissions } from "@july/snarl";

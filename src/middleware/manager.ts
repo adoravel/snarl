@@ -52,10 +52,6 @@ export function provideMiddleware(def: MiddlewareDefinition): void {
 	providers.set(def.name, def);
 }
 
-export function getProvidedMiddleware(name: string): MiddlewareDefinition | undefined {
-	return providers.get(name);
-}
-
 export class MiddlewareManager {
 	#defs = new Map<string, MiddlewareDefinition>();
 	#insertion = new Map<string, number>();

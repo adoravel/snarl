@@ -75,9 +75,8 @@ app.serve();
 
 ## ecosystem
 
-| Package          | Description                                             |
-| :--------------- | :------------------------------------------------------ |
-| **@july/snarl**  | core: router, middleware, jsx, streaming                |
-| **@404/imouto**  | file-based routing, layout composition, app boilerplate |
-| **@404/aether**  | islands architecture, reactivity, client bundling       |
-| **@404/varnish** | response post-processing: minification, scoped CSS      |
+| Package         | Description                                             |
+| :-------------- | :------------------------------------------------------ |
+| **@july/snarl** | core: router, middleware, jsx, streaming                |
+| **@404/imouto** | file-based routing, layout composition, app boilerplate |
+| **@404/aether** | islands architecture, reactivity, client bundling       |
