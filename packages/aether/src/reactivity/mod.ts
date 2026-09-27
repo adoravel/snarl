@@ -42,7 +42,7 @@ export function isReactive(value: unknown): value is () => unknown {
 
 export { type Signal, signal } from "./signal.ts";
 export { type Computed, computed } from "./computed.ts";
-export { type Dispose, effect, effectScope } from "./effect.ts";
+export { type Dispose, effect, effectScope, setEffectErrorHandler } from "./effect.ts";
 export { flush, getActiveSub, setActiveSub, trigger, untracked } from "./engine.ts";
 export type { Link, ReactiveNode } from "./types.ts";
 export type { ReactiveAccessor } from "./accessor.ts";

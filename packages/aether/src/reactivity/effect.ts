@@ -61,11 +61,34 @@ export function effectScope(fn: () => void): Dispose {
 	return tag(() => disposeEffectScope(node), NodeKind.EffectScope);
 }
 
+let onEffectError: (error: unknown) => void = (error) => {
+	console.error("aether:", "an effect threw and was skipped:", error);
+};
+
+/** replaces the reporter used when an effect throws. returns the previous one */
+export function setEffectErrorHandler(
+	handler: (error: unknown) => void,
+): (error: unknown) => void {
+	const previous = onEffectError;
+	onEffectError = handler;
+	return previous;
+}
+
+/** runs `fn`, keeping a throw from escaping into whatever wrote the signal */
+function runIsolated(node: EffectNode): void {
+	try {
+		node.cleanup = node.fn();
+	} catch (error) {
+		node.cleanup = undefined;
+		onEffectError(error);
+	}
+}
+
 export function startEffect(node: EffectNode): void {
 	const prevSub = beginChildScope(node);
 	try {
 		incrementRunDepth();
-		node.cleanup = node.fn();
+		runIsolated(node);
 	} finally {
 		decrementRunDepth();
 		setActiveSub(prevSub);
@@ -115,7 +138,7 @@ export function runEffect(node: EffectNode): void {
 		try {
 			incrementCycle();
 			incrementRunDepth();
-			node.cleanup = node.fn();
+			runIsolated(node);
 		} finally {
 			decrementRunDepth();
 			setActiveSub(prevSub);
@@ -138,6 +161,8 @@ export function runCleanup(node: EffectNode): void {
 	const prevSub = setActiveSub(undefined);
 	try {
 		cleanup();
+	} catch (error) {
+		onEffectError(error);
 	} finally {
 		setActiveSub(prevSub);
 	}
