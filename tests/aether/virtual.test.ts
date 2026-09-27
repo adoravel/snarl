@@ -44,7 +44,7 @@ Deno.test("virtual: keyed items keep their nodes while the window slides", async
 			each: list,
 			key: (n: number) => n,
 			virtual: { itemSize: 10, overscan: 1, scrollParent: container },
-			children: (n: number) => h("li", { children: String(n) }),
+			children: (n: () => number) => h("li", { children: String(n()) }),
 		}),
 	}) as HTMLElement;
 	container.append(ul);

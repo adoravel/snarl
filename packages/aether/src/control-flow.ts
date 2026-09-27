@@ -5,35 +5,35 @@
  */
 
 import { Fragment, type JSX, jsx } from "./jsx-runtime.ts";
+import { BLOCK, type BlockKind, useFallback } from "./control-flow-types.ts";
+import type {
+	AwaitProps as SharedAwaitProps,
+	ForProps as SharedForProps,
+	ShowProps as SharedShowProps,
+	VirtualOptions as SharedVirtualOptions,
+} from "./control-flow-types.ts";
 
-function block(kind: string, children: JSX.Node): JSX.Element {
+export type { BlockKind };
+
+function block(kind: BlockKind, children: JSX.Node): JSX.Element {
 	return jsx(Fragment as JSX.Fragment, {
 		children: [comment(kind), children, comment(`/${kind}`)],
 	});
 }
 
 export function hydrationSlot(children: JSX.Node): JSX.Element {
-	return block("slot", children);
+	return block(BLOCK.slot, children);
 }
 
 function comment(data: string): JSX.Element {
 	return jsx(Fragment as JSX.Fragment, { dangerouslySetInnerHTML: { __html: `<!--${data}-->` } });
 }
 
-export interface VirtualOptions<T> {
-	itemSize: number | ((item: T, index: number) => number);
-	overscan?: number;
-	ssr?: number;
-	[option: string]: unknown;
-}
+export type VirtualOptions<T> = SharedVirtualOptions<T>;
 
-export interface ForProps<T> {
-	each: T[] | (() => T[]);
-	key: (item: T, index: number) => string | number;
-	children: (item: T, index: () => number) => JSX.Node;
-
-	/** render only the first `ssr ?? overscan` items, between spacers, for the client to window */
-	virtual?: VirtualOptions<T>;
+export interface ForProps<T> extends SharedForProps<T> {
+	children: (item: () => T, index: () => number) => JSX.Node;
+	fallback?: JSX.Node;
 }
 
 function initialSpacers<T>(items: T[], options: VirtualOptions<T>): [top: number, bottom: number] {
@@ -72,17 +72,21 @@ export function For<T>(props: ForProps<T>): JSX.Element {
 			return [];
 		}
 		seen.add(key);
-		return [props.children(item, () => index)];
+		return [props.children(() => item, () => index)];
 	});
 
-	if (!virtual) return block("for", rendered);
+	const content = useFallback(rendered.length, props.fallback) ? props.fallback : rendered;
+	if (!virtual) return block(BLOCK.for, content);
 
 	const [top, bottom] = initialSpacers(all, virtual);
-	return block("virtual", [spacer(top, "top"), block("for", rendered), spacer(bottom, "bottom")]);
+	return block(BLOCK.virtual, [
+		spacer(top, "top"),
+		block(BLOCK.for, content),
+		spacer(bottom, "bottom"),
+	]);
 }
 
-export interface ShowProps<T = unknown> {
-	when: T | (() => T);
+export interface ShowProps<T = unknown> extends SharedShowProps<T> {
 	fallback?: JSX.Node;
 	children: JSX.Node | ((value: NonNullable<T>) => JSX.Node);
 }
@@ -95,16 +99,15 @@ export function Show<T>(props: ShowProps<T>): JSX.Element {
 			: props.children)
 		: (props.fallback ?? null);
 
-	return block("show", branch);
+	return block(BLOCK.show, branch);
 }
 
-export interface AwaitProps<T> {
-	for: Promise<T> | T | (() => Promise<T> | T);
+export interface AwaitProps<T> extends SharedAwaitProps<T> {
 	fallback?: JSX.Node;
 	catch?: (error: unknown) => JSX.Node;
 	children: (value: T) => JSX.Node;
 }
 
 export function Await<T>(props: AwaitProps<T>): JSX.Element {
-	return block("await", props.fallback ?? null);
+	return block(BLOCK.await, props.fallback ?? null);
 }

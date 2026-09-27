@@ -10,8 +10,10 @@ import {
 	buildSlot,
 	claimElement,
 	claimSlot,
+	expandBlocks,
 	isHydrating,
 	reconcileChildren,
+	removeNodes,
 	type Slot,
 } from "./hydration.ts";
 
@@ -142,18 +144,34 @@ export function jsxTemplate(
 
 export type Component<P extends JSX.Props = JSX.Props> = (props: P) => JSX.Node;
 
-function createTextNode(source: () => unknown): Text {
-	const node = document.createTextNode("");
+function createTextNode(source: () => unknown): Node[] {
+	const anchor = document.createTextNode("");
+	let rendered: Node[] = [];
+
 	effect(() => {
 		const value = source();
-		if (Array.isArray(value) || value instanceof Node) {
-			throw new Error(
-				"aether: a signal/computed child must resolve to a primitive, not a node or array",
-			);
+
+		const nodes = Array.isArray(value) || value instanceof Node || isReactive(value) ||
+				isLazy(value)
+			? toNodes(value)
+			: null;
+
+		removeNodes(rendered);
+		rendered = nodes ?? [];
+		anchor.data = nodes || value == null || typeof value === "boolean" ? "" : String(value);
+		if (!nodes) return;
+
+		const parent = anchor.parentNode;
+		if (!parent) return;
+
+		let cursor: Node = anchor;
+		for (const node of expandBlocks(nodes)) {
+			parent.insertBefore(node, cursor.nextSibling);
+			cursor = node;
 		}
-		node.data = String(value ?? "");
 	});
-	return node;
+
+	return rendered.length ? [anchor, ...rendered] : [anchor];
 }
 
 const LAZY = Symbol.for("aether.lazy");
@@ -173,7 +191,7 @@ function isLazy(value: unknown): value is Lazy {
 
 export function normaliseChildren(raw: unknown): (Node | string)[] {
 	if (raw == null || raw === false || raw === true) return [];
-	if (isReactive(raw)) return [createTextNode(raw as () => unknown)];
+	if (isReactive(raw)) return createTextNode(raw as () => unknown);
 	if (isLazy(raw)) {
 		const { slot } = raw;
 		if (!slot) return normaliseChildren(raw[LAZY]());

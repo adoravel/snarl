@@ -16,6 +16,12 @@ import {
 import { jsx, toNodes } from "./jsx-runtime.ts";
 import type { JSX } from "./jsx-runtime.ts";
 import { connect, VirtualList, type VirtualOptions } from "./virtual.ts";
+import { BLOCK, type BlockKind, useFallback } from "../control-flow-types.ts";
+import type {
+	AwaitProps as SharedAwaitProps,
+	ForProps as SharedForProps,
+	ShowProps as SharedShowProps,
+} from "../control-flow-types.ts";
 
 export type { VirtualApi, VirtualOptions } from "./virtual.ts";
 import {
@@ -36,7 +42,7 @@ interface Block {
 	result: JSX.Element;
 }
 
-function createBlock(kind: string): Block {
+function createBlock(kind: BlockKind): Block {
 	const start = document.createComment(kind);
 	const end = document.createComment(`/${kind}`);
 	const holder = document.createDocumentFragment();
@@ -46,7 +52,7 @@ function createBlock(kind: string): Block {
 }
 
 /** swaps in the server's anchors. must run after the block's first effect run */
-function adoptBlock(block: Block, kind: string, content: readonly Node[]): void {
+function adoptBlock(block: Block, kind: BlockKind, content: readonly Node[]): void {
 	const claimed = claimBlock(kind);
 	if (!claimed) {
 		reportMismatch(`no server markers for <${kind}>`);
@@ -71,29 +77,14 @@ function place(block: Block, nodes: readonly Node[]): void {
 	}
 }
 
-export interface ForProps<T> {
-	/** the list to render */
-	each: T[] | (() => T[]);
-
-	/** stable identity per item. matches old/new DOM nodes across renders instead of rebuilding everything */
-	key: (item: T, index: number) => string | number;
-
-	/**
-	 * renders one item. `index` is a live accessor reflecting this item's
-	 * *current* position. it can change on reorder without the item
-	 * itself re-rendering.
-	 */
-	children: (item: T, index: () => number) => JSX.Node;
-
-	/**
-	 * only render the items around the viewport. needs one element per item
-	 * for measured sizes; see `VirtualOptions`
-	 */
+export interface ForProps<T> extends SharedForProps<T> {
+	children: (item: () => T, index: () => number) => JSX.Node;
+	fallback?: JSX.Node;
 	virtual?: VirtualOptions<T>;
 }
 
 interface Entry<T> {
-	item: T;
+	item: Signal<T>;
 	index: Signal<number>;
 	nodes: Node[];
 	dispose: Dispose;
@@ -119,18 +110,21 @@ function readEach<T>(each: ForProps<T>["each"]): T[] {
 export function For<T>(props: ForProps<T>): JSX.Element {
 	if (props.virtual) return VirtualFor(props, props.virtual);
 
-	const block = createBlock("for");
+	const block = createBlock(BLOCK.for);
 	const entries = new Map<string | number, Entry<T>>();
 	let hydrating = isHydrating();
 	let initial: Node[] | undefined;
+	let fallbackNodes: Node[] = [];
+	let disposeFallback: Dispose | undefined;
 
 	const owner = getActiveSub();
-	const render = (item: T, index: Signal<number>): Pick<Entry<T>, "nodes" | "dispose"> => {
+
+	const owned = (build: () => JSX.Node): Pick<Entry<T>, "nodes" | "dispose"> => {
 		const previous = setActiveSub(owner);
 		try {
 			let nodes: Node[] = [];
 			const dispose = effectScope(() => {
-				nodes = toNodes(props.children(item, () => index()));
+				nodes = toNodes(build());
 			});
 			return { nodes, dispose };
 		} finally {
@@ -160,16 +154,16 @@ export function For<T>(props: ForProps<T>): JSX.Element {
 			let entry = entries.get(key);
 			if (!entry) {
 				const index = signal(i);
-				entry = { item, index, ...render(item, index) };
+				const value = signal(item);
+				entry = {
+					item: value,
+					index,
+					...owned(() => props.children(() => value(), () => index())),
+				};
 				entries.set(key, entry);
 			} else {
 				entry.index(i);
-				if (!Object.is(entry.item, item)) {
-					entry.dispose();
-					removeNodes(entry.nodes);
-					Object.assign(entry, render(item, entry.index));
-					entry.item = item;
-				}
+				entry.item(item);
 			}
 			ordered.push(entry);
 		}
@@ -181,16 +175,29 @@ export function For<T>(props: ForProps<T>): JSX.Element {
 			entries.delete(key);
 		}
 
+		const empty = useFallback(ordered.length, props.fallback);
+		if (empty && fallbackNodes.length === 0) {
+			({ nodes: fallbackNodes, dispose: disposeFallback } = owned(() => props.fallback));
+		} else if (!empty && fallbackNodes.length) {
+			disposeFallback?.();
+			disposeFallback = undefined;
+			removeNodes(fallbackNodes);
+			fallbackNodes = [];
+		}
+		const content = empty
+			? expandBlocks(fallbackNodes)
+			: ordered.flatMap((entry) => expandBlocks(entry.nodes));
+
 		if (hydrating) {
 			hydrating = false;
-			initial = ordered.flatMap((entry) => entry.nodes);
+			initial = content;
 			return;
 		}
 
-		place(block, ordered.flatMap((entry) => expandBlocks(entry.nodes)));
+		place(block, content);
 	});
 
-	if (initial) adoptBlock(block, "for", initial);
+	if (initial) adoptBlock(block, BLOCK.for, initial);
 	return block.result;
 }
 
@@ -203,7 +210,7 @@ function spacer(height: Signal<number>, edge: "top" | "bottom"): Node {
 }
 
 function VirtualFor<T>(props: ForProps<T>, options: VirtualOptions<T>): JSX.Element {
-	const block = createBlock("virtual");
+	const block = createBlock(BLOCK.virtual);
 	const list = new VirtualList<T>(options, props.key);
 	const items = signal<T[]>([]);
 
@@ -241,7 +248,7 @@ function VirtualFor<T>(props: ForProps<T>, options: VirtualOptions<T>): JSX.Elem
 
 	const bottom = spacer(list.bottomHeight, "bottom");
 	const content = [top, ...toNodes(inner), bottom];
-	if (isHydrating()) adoptBlock(block, "virtual", content);
+	if (isHydrating()) adoptBlock(block, BLOCK.virtual, content);
 	else place(block, expandBlocks(content));
 
 	connect(list, () => top);
@@ -250,14 +257,8 @@ function VirtualFor<T>(props: ForProps<T>, options: VirtualOptions<T>): JSX.Elem
 	return block.result;
 }
 
-export interface ShowProps<T = unknown> {
-	/** the condition. a signal/computed re-evaluates reactively */
-	when: T | (() => T);
-
-	/** rendered when `when` is falsy. omit for nothing */
+export interface ShowProps<T = unknown> extends SharedShowProps<T> {
 	fallback?: JSX.Node;
-
-	/** rendered when `when` is truthy */
 	children: JSX.Node | ((value: NonNullable<T>) => JSX.Node);
 }
 
@@ -265,7 +266,7 @@ export interface ShowProps<T = unknown> {
  * conditional rendering that swaps branches in place.
  */
 export function Show<T>(props: ShowProps<T>): JSX.Element {
-	const block = createBlock("show");
+	const block = createBlock(BLOCK.show);
 	let hydrating = isHydrating();
 	let initial: Node[] | undefined;
 	let currentNodes: Node[] = [];
@@ -292,29 +293,18 @@ export function Show<T>(props: ShowProps<T>): JSX.Element {
 		place(block, expandBlocks(currentNodes));
 	});
 
-	if (initial) adoptBlock(block, "show", initial);
+	if (initial) adoptBlock(block, BLOCK.show, initial);
 	return block.result;
 }
 
-export interface AwaitProps<T> {
-	/**
-	 * the value to wait for. a function (or signal) is tracked: a new promise
-	 * from it discards the pending one and shows `fallback` again
-	 */
-	for: Promise<T> | T | (() => Promise<T> | T);
-
-	/** shown until the promise settles */
+export interface AwaitProps<T> extends SharedAwaitProps<T> {
 	fallback?: JSX.Node;
-
-	/** rendered if the promise rejects. without it the rejection is logged and `fallback` stays */
 	catch?: (error: unknown) => JSX.Node;
-
-	/** rendered with the resolved value */
 	children: (value: T) => JSX.Node;
 }
 
 export function Await<T>(props: AwaitProps<T>): JSX.Element {
-	const block = createBlock("await");
+	const block = createBlock(BLOCK.await);
 	let hydrating = isHydrating();
 	let initial: Node[] | undefined;
 	let currentNodes: Node[] = [];
@@ -376,6 +366,6 @@ export function Await<T>(props: AwaitProps<T>): JSX.Element {
 		};
 	});
 
-	if (initial) adoptBlock(block, "await", initial);
+	if (initial) adoptBlock(block, BLOCK.await, initial);
 	return block.result;
 }

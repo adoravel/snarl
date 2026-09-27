@@ -17,7 +17,7 @@ Deno.test("ssr: <show> and <for> wrap their output in hydration markers", async 
 		jsx("div", {
 			children: [
 				jsx("show", { when: on, fallback: "off", children: jsx("b", { children: "on" }) }),
-				jsx("for", { each: ["a", "b"], key: (t: string) => t, children: (t: string) => t }),
+				jsx("for", { each: ["a", "b"], key: (t: string) => t, children: (t: () => string) => t() }),
 			],
 		}),
 	);

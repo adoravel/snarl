@@ -45,7 +45,7 @@ Deno.test("bind:value on <select> works with options from <for>", () => {
 		children: h("for", {
 			each: options,
 			key: (o: string) => o,
-			children: (o: string) => h("option", { value: o, children: o }),
+			children: (o: () => string) => h("option", { value: o(), children: o() }),
 		}),
 	}) as HTMLSelectElement;
 
@@ -89,7 +89,7 @@ Deno.test("ssr: select options are matched by text, through <for> and <optgroup>
 					children: s("for", {
 						each: ["one", "two"],
 						key: (o: string) => o,
-						children: (o: string) => s("option", { children: o }),
+						children: (o: () => string) => s("option", { children: o() }),
 					}),
 				}),
 				s("option", { children: "three" }),

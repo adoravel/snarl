@@ -117,20 +117,20 @@ export default function Todos() {
 			</show>
 
 			<ul class="todo-list">
-				<for each={todos} key={(t) => t.id}>
-					{(todo: Todo) => (
-						<li class="todo-item" class:done={todo.done}>
+				<for each={todos} key={(t) => t.id} fallback={<li class="todo-item">nothing yet</li>}>
+					{(todo: () => Todo) => (
+						<li class="todo-item" class:done={() => todo().done}>
 							<input
 								type="checkbox"
-								checked={todo.done}
-								on:change={() => toggleTodo(todo)}
+								checked={todo().done}
+								on:change={() => toggleTodo(todo())}
 							/>
-							<label on:click={() => toggleTodo(todo)}>{todo.text}</label>
-							<button type="button" class="delete-btn" onClick={() => deleteTodo(todo.id)}>
+							<label on:click={() => toggleTodo(todo())}>{todo().text}</label>
+							<button type="button" class="delete-btn" onClick={() => deleteTodo(todo().id)}>
 								✕
 							</button>
 						</li>
-					)}
+					) }
 				</for>
 			</ul>
 

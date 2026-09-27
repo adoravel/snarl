@@ -157,7 +157,7 @@ Deno.test("hydration: <for> adopts items and keeps keyed nodes across updates", 
 			children: h("for", {
 				each: items,
 				key: (t: { id: number }) => t.id,
-				children: (t: { text: string }) => h("li", { children: t.text }),
+				children: (t: () => { text: string }) => h("li", { children: t().text }),
 			}),
 		})
 	);
@@ -178,7 +178,7 @@ Deno.test("hydration: <for> with text items", async () => {
 	const tags = signal(["x", "y"]);
 	const { el, warnings } = await mountIsland((h) =>
 		h("p", {
-			children: h("for", { each: tags, key: (t: string) => t, children: (t: string) => t }),
+			children: h("for", { each: tags, key: (t: string) => t, children: (t: () => string) => t() }),
 		})
 	);
 	assertEquals(warnings, []);
@@ -198,7 +198,7 @@ Deno.test("hydration: <for> nested in a static <show> moves and removes as a uni
 					children: h("for", {
 						each: items,
 						key: (n: number) => n,
-						children: (n: number) => h("li", { children: String(n) }),
+						children: (n: () => number) => h("li", { children: String(n()) }),
 					}),
 				}),
 				h("hr"),

@@ -5,6 +5,7 @@
  */
 
 import { onCleanup, type Signal, signal, untracked } from "../reactivity/mod.ts";
+import type { VirtualOptions as SharedVirtualOptions } from "../control-flow-types.ts";
 
 export interface VirtualApi {
 	/** scrolls so the item at `index` (or with `key`) is at the top of the viewport */
@@ -14,16 +15,7 @@ export interface VirtualApi {
 	scrollToEnd(behavior?: ScrollBehavior): void;
 }
 
-export interface VirtualOptions<T> {
-	/**
-	 * height of an item in px: a number for fixed rows, or a function giving
-	 * an estimate that's corrected once the item has been measured
-	 */
-	itemSize: number | ((item: T, index: number) => number);
-
-	/** items rendered beyond each edge of the viewport. defaults to 10 */
-	overscan?: number;
-
+export interface VirtualOptions<T> extends SharedVirtualOptions<T> {
 	/** the element that scrolls. defaults to the nearest scrollable ancestor, else the page */
 	scrollParent?: Element;
 
@@ -32,9 +24,6 @@ export interface VirtualOptions<T> {
 	 * timeline stays on the newest message unless the user scrolled up
 	 */
 	anchor?: "top" | "bottom";
-
-	/** how many items the server renders (and the client shows before measuring). defaults to `overscan` */
-	ssr?: number;
 
 	/** receives the imperative api once mounted */
 	ref?: (api: VirtualApi) => void;

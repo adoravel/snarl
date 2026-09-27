@@ -78,7 +78,8 @@ Deno.test("<for>: item bindings survive list updates and are disposed with the i
 		children: h("for", {
 			each: items,
 			key: (n: number) => n,
-			children: (n: number) => {
+			children: (item: () => number) => {
+				const n = item();
 				onCleanup(() => cleaned.push(n));
 				return h("li", { children: [String(n), ":", count] });
 			},
@@ -104,7 +105,8 @@ Deno.test("<for>: onMount inside an item is not re-run by list changes", async (
 			children: h("for", {
 				each: items,
 				key: (s: string) => s,
-				children: (s: string) => {
+				children: (item: () => string) => {
+					const s = item();
 					onClient(h, () =>
 						onMount(() => {
 							mounted.push(s);
