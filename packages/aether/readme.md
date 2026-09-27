@@ -9,7 +9,8 @@ a minimal islands architecture implementation for [snarl]
 - signal/computed/effect system with automatic dependency tracking
 - client bundles are built per-island-set with tree-shaking and minification via [`esbuild`]
 - ssr output includes hydration markers; the client bundle hydrates only `[data-x-id]` boundaries
-- `<show>`, `<for>` (keyed, optionally windowed with `virtual`) and `<await>` control flow
+- `<show>`, `<for>` (keyed, with a `fallback`, optionally windowed with `virtual`) and `<await>`
+  control flow
 
 ## quick start
 
@@ -85,6 +86,7 @@ app.serve({ port: 8000 });
 | **navigate(href) / route()**                  | client-side routing in spa mode                                             |
 | **`<await for fallback catch>`**              | renders the fallback until the promise settles                              |
 | **`<for virtual={{ itemSize }}>`**            | windowed list: only the rows near the viewport exist                        |
+| **setEffectErrorHandler(fn)**                 | where a throwing effect is reported. the default logs and carries on        |
 | **aether(?options)**                          | Middleware that discovers islands and serves client bundles                 |
 
 [`@404/aether`]: https://kyu.re/~snarl
