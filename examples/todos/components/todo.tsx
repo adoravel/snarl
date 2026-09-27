@@ -130,7 +130,7 @@ export default function Todos() {
 								✕
 							</button>
 						</li>
-					) }
+					)}
 				</for>
 			</ul>
 
