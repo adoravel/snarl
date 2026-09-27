@@ -13,6 +13,8 @@ export * from "./cookie.ts";
 export * from "./stream.ts";
 export * from "./permissions.ts";
 export * from "./validate.ts";
+export * from "./service.ts";
+export * from "./remote.ts";
 
 export * from "./jsx-runtime.ts";
 export type { JSX } from "./jsx-runtime.ts";

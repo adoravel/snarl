@@ -16,6 +16,8 @@ composable middleware system with automatic dependency resolution, and native st
 - first-class SSE and WebSocket support with abort-safe async iterables
 - lightweight server-side rendering with escaping, style objects, and fragment support
 - automatic JSON, form-urlencoded, and multipart file upload handling with size limits
+- a typed `service` api: functions that are also ordinary http endpoints, callable in process or
+  from the browser through the same call site
 - a tiny schema validator (`v`) whose definitions are the types: `ctx.body.json(User)`,
   `ctx.body.form(Signup)` and `ctx.query.parse(Filters)` validate, narrow, and answer a 422 with
   every issue and its path. `v.coerce` turns the strings a query or form carries into numbers,
@@ -80,3 +82,81 @@ app.serve();
 | **@july/snarl** | core: router, middleware, jsx, streaming                |
 | **@404/imouto** | file-based routing, layout composition, app boilerplate |
 | **@404/aether** | islands architecture, reactivity, client bundling       |
+
+## service
+
+a procedure is a `v` schema and a handler. mounting the service registers one real route per
+procedure
+
+```ts
+// api.ts
+const authed = service.guard(({ ctx }) => {
+	const user = session(ctx);
+	if (!user) throw new ServiceError("unauthorised", "sign in first");
+	return { user };
+}, ["unauthorised"]);
+
+export const api = service({
+	posts: {
+		list: service.query({
+			input: v({ page: v.coerce.number({ int: true, min: 1 }).default(1) }),
+			headers: { "Cache-Control": "max-age=60" },
+			handler: ({ input }) => db.posts(input.page),
+		}),
+		create: authed.mutation({
+			input: v({ title: v.string({ min: 1 }) }),
+			errors: ["conflict"],
+			handler: ({ input, user }) => db.create(input, user),
+		}),
+		tail: authed.stream({
+			handler: async function* ({ user }) {
+				for await (const post of db.watch(user)) yield post;
+			},
+		}),
+	},
+});
+
+// main.ts
+api.mount(app);
+```
+
+```ts
+// on the server
+const posts = await api.caller(ctx).posts.list({ page: 2 });
+
+// in the browser
+import type { api } from "./api.ts";
+
+const client = createClient<typeof api>();
+const posts = await client.posts.list({ page: 2 });
+```
+
+### somebody else's api
+
+`service()` describes procedures you implement. `remote()` describes endpoints you only call, so
+let's say, a go or rust service gets the same call sites as your own:
+
+```ts
+const billing = remote("https://billing.internal", {
+	invoices: {
+		list: endpoint.get("/v1/invoices", {
+			input: v({ customer: v.string(), limit: v.coerce.number().default(20) }),
+			output: v({ data: v.array(Invoice) }),
+		}),
+		get: endpoint.get("/v1/invoices/:id", { input: v({ id: v.string() }), output: Invoice }),
+		void: endpoint.post("/v1/invoices/:id/void", {
+			input: v({ id: v.string() }),
+			output: Invoice,
+			errors: ["conflict"],
+		}),
+		events: endpoint.stream("/v1/events", { output: Invoice }),
+	},
+});
+
+const client = createRemoteClient(billing, { headers: () => ({ authorization: `Bearer ${key}` }) });
+
+const invoice = await client.invoices.get({ id: "in_1" });
+const result = await client.invoices.void.safe({ id: "in_1" });
+
+if (!result.ok && result.error.code === "conflict") … // :3
+```

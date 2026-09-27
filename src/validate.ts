@@ -4,38 +4,6 @@
  * SPDX-License-Identifier: MPL-2.0
  */
 
-/**
- * @module validate
- * a small schema validator whose definitions are also the types.
- *
- * @example
- * ```ts
- * const User = v({
- *   name: v.string({ min: 1, max: 64 }),
- *   email: v.email(),
- *   age: v.optional(v.number({ int: true, min: 0 })),
- *   role: v.enum(["admin", "member"]),
- * });
- * type User = Infer<typeof User>;
- * // { name: string; email: Email; role: "admin" | "member"; age?: number }
- *
- * app.post("/users", async (ctx) => {
- *   const user = await ctx.body.json(User); // 422 with the issues if it doesn't fit
- *   ...
- * });
- *
- * // query strings and forms only carry strings: coerce them
- * const Filters = v({
- *   page: v.coerce.number({ int: true, min: 1 }).default(1),
- *   tag: v.coerce.array(v.string()),
- * });
- * app.get("/posts", (ctx) => {
- *   const { page, tag } = ctx.query.parse(Filters); // { page: number; tag: string[] }
- *   ...
- * });
- * ```
- */
-
 import { HttpError } from "./errors.ts";
 
 /** where an issue was found, e.g. `["contact", 0, "email"]` */
@@ -60,49 +28,49 @@ export type Uuid = string & Brand<"uuid">;
 /** on a schema: the key may be missing when used in `v.object` */
 const optional: unique symbol = Symbol("snarl.optional");
 
-export interface Schema<T> {
-	/**
-	 * collects issues for `value` under `path` and returns the value to use:
-	 * the input itself, or what a coercing schema made of it. the building
-	 * block every other method uses
-	 */
+export interface Schema<Out, In = Out> {
 	check(value: unknown, path: Path, issues: Issue[]): unknown;
 
 	/** returns the (coerced) value typed, or throws a `ValidationError` (422) with every issue */
-	parse(value: unknown): T;
+	parse(value: unknown): Out;
 
 	/** like `parse`, without throwing */
-	safeParse(value: unknown): Result<T>;
+	safeParse(value: unknown): Result<Out>;
 
 	/**
-	 * a type guard: would `parse` accept it? for a coercing schema the
+	 * a type guard. would `parse` accept it? for a coercing schema the
 	 * narrowed type describes what `parse` returns, not the raw input
 	 */
-	is(value: unknown): value is T;
+	is(value: unknown): value is Out;
 
 	/** the key may be missing (or `undefined`) when used in `v.object` */
-	optional(): OptionalSchema<T>;
-	nullable(): Schema<T | null>;
+	optional(): OptionalSchema<Out, In>;
+
+	nullable(): Schema<Out | null, In | null>;
 
 	/** a missing or `undefined` value becomes `value`; the key may be missing in `v.object` */
-	default(value: T): DefaultSchema<T>;
+	default(value: Out): DefaultSchema<Out, In>;
 
 	/** an extra condition on an already-valid value */
-	refine(predicate: (value: T) => boolean, message?: string): Schema<T>;
+	refine(predicate: (value: Out) => boolean, message?: string): Schema<Out, In>;
 }
 
-export interface OptionalSchema<T> extends Schema<T | undefined> {
+export interface OptionalSchema<Out, In = Out> extends Schema<Out | undefined, In | undefined> {
 	readonly [optional]: true;
 }
 
-export interface DefaultSchema<T> extends Schema<T> {
+/** the value is filled in when absent, so the output is never `undefined` */
+export interface DefaultSchema<Out, In = Out> extends Schema<Out, In | undefined> {
 	readonly [optional]: true;
 }
 
-/** the type a schema validates (and, for coercing schemas, produces) */
-export type Infer<S> = S extends Schema<infer T> ? T : never;
+/** what a schema produces */
+export type Infer<S> = S extends Schema<infer Out, any> ? Out : never;
 
-type Shape = Record<string, Schema<unknown>>;
+/** what a schema accepts */
+export type InferInput<S> = S extends Schema<any, infer In> ? In : never;
+
+type Shape = Record<string, Schema<any, any>>;
 
 /** keys that may be absent in the input *and* stay possibly undefined in the output */
 type OptionalKeys<S extends Shape> = {
@@ -111,12 +79,22 @@ type OptionalKeys<S extends Shape> = {
 		: never;
 }[keyof S];
 
+/** keys a caller may leave out */
+type OptionalInputKeys<S extends Shape> = {
+	[K in keyof S]: S[K] extends { readonly [optional]: true } ? K : never;
+}[keyof S];
+
 // deno-lint-ignore ban-types
-type Simplify<T> = { [K in keyof T]: T[K] } & {};
+export type Simplify<T> = { [K in keyof T]: T[K] } & {};
 
 type InferShape<S extends Shape> = Simplify<
 	& { [K in Exclude<keyof S, OptionalKeys<S>>]: Infer<S[K]> }
 	& { [K in OptionalKeys<S>]?: Infer<S[K]> }
+>;
+
+type InferInputShape<S extends Shape> = Simplify<
+	& { [K in Exclude<keyof S, OptionalInputKeys<S>>]: InferInput<S[K]> }
+	& { [K in OptionalInputKeys<S>]?: InferInput<S[K]> }
 >;
 
 /** a 422 carrying every issue; the default error handler puts them in the response body */
@@ -144,47 +122,47 @@ type Check = (value: unknown, path: Path, issues: Issue[]) => unknown;
  * builds a schema from its check. this is all `v.guard` needs, and how new
  * kinds are added
  */
-export function schema<T>(check: Check): Schema<T> {
-	const self: Schema<T> = {
+export function schema<Out, In = Out>(check: Check): Schema<Out, In> {
+	const self: Schema<Out, In> = {
 		check,
 		parse(value) {
 			const issues: Issue[] = [];
 			const out = check(value, [], issues);
 			if (issues.length) throw new ValidationError(issues);
-			return out as T;
+			return out as Out;
 		},
 		safeParse(value) {
 			const issues: Issue[] = [];
 			const out = check(value, [], issues);
-			return issues.length ? { ok: false, issues } : { ok: true, value: out as T };
+			return issues.length ? { ok: false, issues } : { ok: true, value: out as Out };
 		},
-		is(value): value is T {
+		is(value): value is Out {
 			const issues: Issue[] = [];
 			check(value, [], issues);
 			return issues.length === 0;
 		},
 		optional() {
-			const wrapped = schema<T | undefined>((value, path, issues) =>
+			const wrapped = schema<Out | undefined, In | undefined>((value, path, issues) =>
 				value === undefined ? undefined : check(value, path, issues)
 			);
-			return Object.assign(wrapped, { [optional]: true as const }) as OptionalSchema<T>;
+			return Object.assign(wrapped, { [optional]: true as const }) as OptionalSchema<Out, In>;
 		},
 		nullable() {
-			return schema<T | null>((value, path, issues) =>
+			return schema<Out | null, In | null>((value, path, issues) =>
 				value === null ? null : check(value, path, issues)
 			);
 		},
 		default(fallback) {
-			const wrapped = schema<T>((value, path, issues) =>
+			const wrapped = schema<Out, In | undefined>((value, path, issues) =>
 				value === undefined ? fallback : check(value, path, issues)
 			);
-			return Object.assign(wrapped, { [optional]: true as const }) as DefaultSchema<T>;
+			return Object.assign(wrapped, { [optional]: true as const }) as DefaultSchema<Out, In>;
 		},
 		refine(predicate, message = "invalid value") {
-			return schema<T>((value, path, issues) => {
+			return schema<Out, In>((value, path, issues) => {
 				const before = issues.length;
 				const out = check(value, path, issues);
-				if (issues.length === before && !predicate(out as T)) issues.push({ path, message });
+				if (issues.length === before && !predicate(out as Out)) issues.push({ path, message });
 				return out;
 			});
 		},
@@ -275,8 +253,11 @@ function number(options: NumberOptions = {}): Schema<number> {
 	);
 }
 
-function object<S extends Shape>(shape: S, options: ObjectOptions = {}): Schema<InferShape<S>> {
-	return schema<InferShape<S>>((value, path, issues) => {
+function object<S extends Shape>(
+	shape: S,
+	options: ObjectOptions = {},
+): Schema<InferShape<S>, InferInputShape<S>> {
+	return schema<InferShape<S>, InferInputShape<S>>((value, path, issues) => {
 		if (!expect("object", value, path, issues)) return value;
 		const input = value as Record<string, unknown>;
 
@@ -332,16 +313,16 @@ function checkArray<T>(
 	return checkItems(list, (entry, i) => item.check(entry, [...path, i], issues));
 }
 
-function array<T>(item: Schema<T>, options: ArrayOptions = {}): Schema<T[]> {
-	return schema<T[]>((value, path, issues) =>
+function array<Out, In>(item: Schema<Out, In>, options: ArrayOptions = {}): Schema<Out[], In[]> {
+	return schema<Out[], In[]>((value, path, issues) =>
 		expect("array", value, path, issues)
 			? checkArray(value as unknown[], item, options, path, issues)
 			: value
 	);
 }
 
-function record<T>(item: Schema<T>): Schema<Record<string, T>> {
-	return schema<Record<string, T>>((value, path, issues) => {
+function record<Out, In>(item: Schema<Out, In>): Schema<Record<string, Out>, Record<string, In>> {
+	return schema<Record<string, Out>, Record<string, In>>((value, path, issues) => {
 		if (!expect("object", value, path, issues)) return value;
 		const input = value as Record<string, unknown>;
 		let out = input;
@@ -356,9 +337,12 @@ function record<T>(item: Schema<T>): Schema<Record<string, T>> {
 	});
 }
 
-function tuple<const S extends readonly Schema<unknown>[]>(
+function tuple<const S extends readonly Schema<any, any>[]>(
 	items: S,
-): Schema<{ -readonly [K in keyof S]: Infer<S[K]> }> {
+): Schema<
+	{ -readonly [K in keyof S]: Infer<S[K]> },
+	{ -readonly [K in keyof S]: InferInput<S[K]> }
+> {
 	return schema((value, path, issues) => {
 		if (!expect("array", value, path, issues)) return value;
 		const list = value as unknown[];
@@ -372,9 +356,9 @@ function tuple<const S extends readonly Schema<unknown>[]>(
 	});
 }
 
-function union<const S extends readonly Schema<unknown>[]>(
+function union<const S extends readonly Schema<any, any>[]>(
 	...members: S
-): Schema<Infer<S[number]>> {
+): Schema<Infer<S[number]>, InferInput<S[number]>> {
 	return schema((value, path, issues) => {
 		const attempts: Issue[][] = [];
 		for (const member of members) {
@@ -410,7 +394,7 @@ function enumeration<const T extends readonly (string | number)[]>(values: T): S
 }
 
 function format(test: (s: string) => boolean, message: string): Schema<string> {
-	return schema<string>((value, path, issues) => {
+	return schema<string, string>((value, path, issues) => {
 		if (expect("string", value, path, issues) && !test(value as string)) {
 			issues.push({ path, message: `expected ${message}` });
 		}
@@ -427,8 +411,8 @@ const FALSE = new Set(["false", "0", "off", "no", ""]);
  */
 const coerce = {
 	/** numbers and numeric strings (`"42"`, `" 1.5 "`), not `""` or `"abc"` */
-	number: (options: NumberOptions = {}): Schema<number> =>
-		schema<number>((value, path, issues) => {
+	number: (options: NumberOptions = {}): Schema<number, number | string> =>
+		schema<number, number | string>((value, path, issues) => {
 			const n = typeof value === "string" && value.trim() !== "" ? Number(value) : value;
 			if (typeof n !== "number" || Number.isNaN(n)) {
 				issues.push({ path, message: `expected a number, got ${typeOf(value)}` });
@@ -438,8 +422,8 @@ const coerce = {
 		}),
 
 	/** booleans and `"true"/"false"`, `"1"/"0"`, `"on"/"off"`, `"yes"/"no"`; `""` is `false` (an unticked box) */
-	boolean: (): Schema<boolean> =>
-		schema<boolean>((value, path, issues) => {
+	boolean: (): Schema<boolean, boolean | string> =>
+		schema<boolean, boolean | string>((value, path, issues) => {
 			if (typeof value === "boolean") return value;
 			const s = typeof value === "string" ? value.trim().toLowerCase() : undefined;
 			if (s !== undefined && TRUE.has(s)) return true;
@@ -449,8 +433,8 @@ const coerce = {
 		}),
 
 	/** strings, plus numbers, booleans and bigints as their string form */
-	string: (options: StringOptions = {}): Schema<string> =>
-		schema<string>((value, path, issues) => {
+	string: (options: StringOptions = {}): Schema<string, string | number | boolean | bigint> =>
+		schema<string, string | number | boolean | bigint>((value, path, issues) => {
 			const type = typeof value;
 			if (type === "number" || type === "boolean" || type === "bigint") {
 				return checkString(String(value), options, path, issues);
@@ -461,8 +445,8 @@ const coerce = {
 		}),
 
 	/** a `Date`, or anything `new Date()` accepts that yields a valid one */
-	date: (): Schema<Date> =>
-		schema<Date>((value, path, issues) => {
+	date: (): Schema<Date, Date | string | number> =>
+		schema<Date, Date | string | number>((value, path, issues) => {
 			const date = value instanceof Date
 				? value
 				: typeof value === "string" || typeof value === "number"
@@ -476,14 +460,17 @@ const coerce = {
 		}),
 
 	/** an array, a lone value as a one-item array, `undefined` as `[]`: `?tag=a` and `?tag=a&tag=b` alike */
-	array: <T>(item: Schema<T>, options: ArrayOptions = {}): DefaultSchema<T[]> =>
+	array: <Out, In>(
+		item: Schema<Out, In>,
+		options: ArrayOptions = {},
+	): DefaultSchema<Out[], In | In[]> =>
 		Object.assign(
-			schema<T[]>((value, path, issues) => {
+			schema<Out[], In | In[]>((value, path, issues) => {
 				const list = value === undefined ? [] : Array.isArray(value) ? value : [value];
 				return checkArray(list, item, options, path, issues);
 			}),
 			{ [optional]: true as const },
-		),
+		) as DefaultSchema<Out[], In | In[]>,
 };
 
 export function entriesToObject<V>(entries: Iterable<[string, V]>): Record<string, V | V[]> {
@@ -503,7 +490,7 @@ export function entriesToObject<V>(entries: Iterable<[string, V]>): Record<strin
  * `v.guard` or by calling `schema()` directly
  */
 export const v: {
-	<S extends Shape>(shape: S, options?: ObjectOptions): Schema<InferShape<S>>;
+	<S extends Shape>(shape: S, options?: ObjectOptions): Schema<InferShape<S>, InferInputShape<S>>;
 	object: typeof object;
 	string: typeof string;
 	number: typeof number;
@@ -514,17 +501,17 @@ export const v: {
 	record: typeof record;
 	tuple: typeof tuple;
 	union: typeof union;
-	optional<T>(inner: Schema<T>): OptionalSchema<T>;
-	nullable<T>(inner: Schema<T>): Schema<T | null>;
-	default<T>(inner: Schema<T>, value: T): DefaultSchema<T>;
+	optional<Out, In>(inner: Schema<Out, In>): OptionalSchema<Out, In>;
+	nullable<Out, In>(inner: Schema<Out, In>): Schema<Out | null, In | null>;
+	default<Out, In>(inner: Schema<Out, In>, value: Out): DefaultSchema<Out, In>;
 	any(): Schema<unknown>;
-	email(): Schema<Email>;
-	url(): Schema<Url>;
-	uuid(): Schema<Uuid>;
+	email(): Schema<Email, string>;
+	url(): Schema<Url, string>;
+	uuid(): Schema<Uuid, string>;
 	/** a type guard as a schema. `message` is reported when it fails */
 	guard<T>(test: (value: unknown) => value is T, message?: string): Schema<T>;
 	/** for recursive shapes, the schema is looked up on first use */
-	lazy<T>(resolve: () => Schema<T>): Schema<T>;
+	lazy<Out, In = Out>(resolve: () => Schema<Out, In>): Schema<Out, In>;
 	coerce: typeof coerce;
 } = Object.assign(
 	<S extends Shape>(shape: S, options?: ObjectOptions) => object(shape, options),
@@ -540,21 +527,21 @@ export const v: {
 		record,
 		tuple,
 		union,
-		optional: <T>(inner: Schema<T>) => inner.optional(),
-		nullable: <T>(inner: Schema<T>) => inner.nullable(),
-		default: <T>(inner: Schema<T>, value: T) => inner.default(value),
+		optional: <Out, In>(inner: Schema<Out, In>) => inner.optional(),
+		nullable: <Out, In>(inner: Schema<Out, In>) => inner.nullable(),
+		default: <Out, In>(inner: Schema<Out, In>, value: Out) => inner.default(value),
 		any: () => schema<unknown>((value) => value),
-		email: () => format((s) => EMAIL_RE.test(s), "an email address") as Schema<Email>,
-		url: () => format((s) => URL.canParse(s), "a url") as Schema<Url>,
-		uuid: () => format((s) => UUID_RE.test(s), "a uuid") as Schema<Uuid>,
+		email: () => format((s) => EMAIL_RE.test(s), "an email address") as Schema<Email, string>,
+		url: () => format((s) => URL.canParse(s), "a url") as Schema<Url, string>,
+		uuid: () => format((s) => UUID_RE.test(s), "a uuid") as Schema<Uuid, string>,
 		guard: <T>(test: (value: unknown) => value is T, message = "invalid value") =>
 			schema<T>((value, path, issues) => {
 				if (!test(value)) issues.push({ path, message });
 				return value;
 			}),
-		lazy: <T>(resolve: () => Schema<T>) => {
-			let resolved: Schema<T> | undefined;
-			return schema<T>((value, path, issues) =>
+		lazy: <Out, In = Out>(resolve: () => Schema<Out, In>) => {
+			let resolved: Schema<Out, In> | undefined;
+			return schema<Out, In>((value, path, issues) =>
 				(resolved ??= resolve()).check(value, path, issues)
 			);
 		},
