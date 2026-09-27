@@ -5,7 +5,8 @@
  */
 
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
-import { relative, resolve } from "@std/path";
+import { relative } from "@std/path";
+import { fixture } from "../scratch.ts";
 import { build } from "@404/imouto";
 import { createApp } from "@404/aether/server";
 import { setLogSink } from "@july/snarl/verbosity";
@@ -44,14 +45,10 @@ export default function Counter() {
 };
 
 Deno.test("build: renders pages, follows links, and collects assets into a static site", async () => {
-	const dir = resolve(await Deno.makeTempDir({ dir: "tests/imouto", prefix: "build-" }));
+	const dir = await fixture("build-crawl", files);
 	const rel = relative(Deno.cwd(), dir);
 	setLogSink(false);
 	try {
-		for (const [name, source] of Object.entries(files)) {
-			await Deno.mkdir(`${dir}/${name}`.replace(/\/[^/]+$/, ""), { recursive: true });
-			await Deno.writeTextFile(`${dir}/${name}`, source);
-		}
 		const app = await createApp({
 			routesDir: `${rel}/routes`,
 			staticDir: `${rel}/static`,
@@ -101,19 +98,14 @@ Deno.test("build: renders pages, follows links, and collects assets into a stati
 		assertStringIncludes(await read(bundle.slice(1)), "registerIsland");
 	} finally {
 		setLogSink(null);
-		await Deno.remove(dir, { recursive: true });
 	}
 });
 
 Deno.test("build: crawl: false only renders what the routes and `paths` name", async () => {
-	const dir = resolve(await Deno.makeTempDir({ dir: "tests/imouto", prefix: "build-" }));
+	const dir = await fixture("build-no-crawl", files);
 	const rel = relative(Deno.cwd(), dir);
 	setLogSink(false);
 	try {
-		for (const [name, source] of Object.entries(files)) {
-			await Deno.mkdir(`${dir}/${name}`.replace(/\/[^/]+$/, ""), { recursive: true });
-			await Deno.writeTextFile(`${dir}/${name}`, source);
-		}
 		const app = await createApp({ routesDir: `${rel}/routes`, logger: false, verbose: false });
 		const result = await build(app, {
 			routesDir: `${rel}/routes`,
@@ -130,6 +122,5 @@ Deno.test("build: crawl: false only renders what the routes and `paths` name", a
 		assert(result.assets.some((a) => a.startsWith("/_css/")), "assets are still collected");
 	} finally {
 		setLogSink(null);
-		await Deno.remove(dir, { recursive: true });
 	}
 });

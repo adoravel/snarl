@@ -5,11 +5,13 @@
  */
 
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
-import { relative, resolve } from "@std/path";
+import { relative } from "@std/path";
+import { fixture } from "../scratch.ts";
 import { window } from "./dom.ts";
 import { createApp } from "@404/aether/server";
 
 const mockInfo = { remoteAddr: { hostname: "127.0.0.1" } } as Deno.ServeHandlerInfo<Deno.NetAddr>;
+let run = 0;
 const pragma = "/** @jsxImportSource @404/aether */\n";
 
 const routes: Record<string, string> = {
@@ -45,16 +47,7 @@ export default function Blog({ children }: { children: unknown }) {
 };
 
 async function withRoutes<T>(fn: (dir: string) => Promise<T>): Promise<T> {
-	const dir = resolve(await Deno.makeTempDir({ dir: "tests/aether", prefix: "spa-" }));
-	try {
-		for (const [name, source] of Object.entries(routes)) {
-			await Deno.mkdir(`${dir}/${name}`.replace(/\/[^/]+$/, ""), { recursive: true });
-			await Deno.writeTextFile(`${dir}/${name}`, source);
-		}
-		return await fn(dir);
-	} finally {
-		await Deno.remove(dir, { recursive: true });
-	}
+	return await fn(await fixture("spa-" + (++run), routes));
 }
 
 Deno.test("spa: pages render inside the shell with nested layouts and a bundle script", async () => {

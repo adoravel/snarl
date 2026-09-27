@@ -5,32 +5,27 @@
  */
 
 import { assertRejects, assertStringIncludes } from "@std/assert";
-import { relative, resolve } from "@std/path";
+import { relative } from "@std/path";
+import { fixture } from "../scratch.ts";
 import { bundleIslands, IslandRegistry } from "@404/aether/server";
 
 async function bundle(
 	files: Record<string, string>,
 	options: Parameters<typeof bundleIslands>[2] = {},
 ): Promise<string> {
-	const dir = resolve(await Deno.makeTempDir({ dir: "tests/aether", prefix: "guard-" }));
-	try {
-		for (const [name, source] of Object.entries(files)) {
-			await Deno.writeTextFile(`${dir}/${name}`, source);
-		}
-		const registry = new IslandRegistry();
-		const meta = registry.register(() => null, `file://${dir}/island.tsx`, "default");
-		const serverOnly = options.serverOnly?.map((g) => `${relative(Deno.cwd(), dir)}/${g}`);
+	const dir = await fixture("guard-" + (++run), files);
+	const registry = new IslandRegistry();
+	const meta = registry.register(() => null, `file://${dir}/island.tsx`, "default");
+	const serverOnly = options.serverOnly?.map((g) => `${relative(Deno.cwd(), dir)}/${g}`);
 
-		return await bundleIslands([meta.id], registry, {
-			...options,
-			serverOnly,
-			esbuild: { logLevel: "silent" },
-		});
-	} finally {
-		await Deno.remove(dir, { recursive: true });
-	}
+	return await bundleIslands([meta.id], registry, {
+		...options,
+		serverOnly,
+		esbuild: { logLevel: "silent" },
+	});
 }
 
+let run = 0;
 const island = (extra = "") =>
 	`/** @jsxImportSource @404/aether */
 import { signal } from "@404/aether";

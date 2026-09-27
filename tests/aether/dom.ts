@@ -4,43 +4,13 @@
  * SPDX-License-Identifier: MPL-2.0
  */
 
-import { Window } from "happy-dom";
+import { window } from "./globals.ts";
 
-export const window = new Window({ url: "http://localhost/" });
+import * as client from "@404/aether/client";
+import * as clientRuntime from "@404/aether/client/jsx-runtime";
+import * as server from "@404/aether/jsx-runtime";
 
-const globals = [
-	"document",
-	"Node",
-	"Element",
-	"Text",
-	"Comment",
-	"DocumentFragment",
-	"HTMLElement",
-	"SVGElement",
-	"HTMLAnchorElement",
-	"HTMLInputElement",
-	"HTMLTemplateElement",
-	"HTMLLinkElement",
-	"NodeFilter",
-	"Event",
-	"MouseEvent",
-	"InputEvent",
-	"AbortController",
-] as const;
-
-for (const name of globals) {
-	if (!(name in globalThis) || name === "document") {
-		Object.defineProperty(globalThis, name, {
-			value: (window as any)[name],
-			configurable: true,
-			writable: true,
-		});
-	}
-}
-
-export const client = await import("@404/aether/client");
-export const clientRuntime = await import("@404/aether/client/jsx-runtime");
-export const server = await import("@404/aether/jsx-runtime");
+export { client, clientRuntime, server, window };
 
 /** either runtime's `jsx`, loosely typed so a tree can be built for both sides */
 export type H = (tag: any, props?: any) => any;
