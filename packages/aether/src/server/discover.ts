@@ -6,6 +6,7 @@
 
 import { dirname, join, relative, resolve, toFileUrl } from "@std/path";
 import { analyseIslandSource, type AstNode, walk } from "./analyser.ts";
+import { lintSource, locate } from "./lint.ts";
 import type { IslandRegistry } from "./registry.ts";
 import { walk as fsWalk } from "@std/fs";
 import { bold, cyan, dim } from "@std/fmt/colors";
@@ -164,6 +165,14 @@ export async function discoverAndRegisterIslands(
 		if (!analysis) {
 			analysis = await analyseIslandSource(source, loader);
 			ANALYSIS_CACHE.set(path, analysis);
+
+			if (loader === "jsx" || loader === "tsx") {
+				for (const issue of lintSource(analysis.ast)) {
+					const { line, column } = locate(source, issue.tag, issue.nth);
+					const at = `${relative(Deno.cwd(), path)}${line ? `:${line}:${column}` : ""}`;
+					log.warn("aether", `${issue.message}\n    at ${dim(at)}`);
+				}
+			}
 		}
 
 		if (analysis.isIsland && analysis.confidence === "high" && hasComponentExport(analysis.ast)) {

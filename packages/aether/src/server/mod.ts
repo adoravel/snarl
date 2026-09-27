@@ -10,6 +10,7 @@ export * from "./guard.ts";
 export * from "./middleware.ts";
 export * from "./registry.ts";
 export * from "./analyser.ts";
+export * from "./lint.ts";
 export * from "./discover.ts";
 export * from "./app.ts";
 export * from "./spa.ts";
