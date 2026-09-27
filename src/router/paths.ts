@@ -28,6 +28,8 @@ export function normalisePath(path: string): string {
 	return result;
 }
 
+const DOT_SEGMENT_RE = /\/(?:\.|%2e){1,2}(?:\/|$)/i;
+
 export function hasTrailingSlash(pathname: string): boolean {
 	return pathname.length > 1 && pathname.charCodeAt(pathname.length - 1) === /* "/" */ 47;
 }
@@ -57,11 +59,11 @@ export function extractPathParts(rawUrl: string): PathParts {
 		search = rawUrl.slice(queryIdx, end);
 	}
 
-	pathname = normalisePath(pathname);
-	return { pathname, search };
+	if (DOT_SEGMENT_RE.test(pathname)) return makeFallbackPathParts(rawUrl);
+	return { pathname: normalisePath(pathname), search };
 }
 
-export function makeFallbackPathParts(rawUrl: string): PathParts {
+function makeFallbackPathParts(rawUrl: string): PathParts {
 	const url = new URL(rawUrl);
-	return { pathname: url.pathname, search: url.search };
+	return { pathname: normalisePath(url.pathname), search: url.search };
 }

@@ -522,3 +522,34 @@ Deno.test("router: edge cases", async (t) => {
 		assertEquals(res.status, 200);
 	});
 });
+
+Deno.test("router: dot segments are resolved before anything matches on the path", async (t) => {
+	const router = createRouter();
+	router.get("/admin", (ctx) => ctx.text(`admin ${ctx.path}`));
+	router.get("/api/thing", (ctx) => ctx.text(`thing ${ctx.path}`));
+
+	await t.step("a traversal resolves to what the browser meant", async () => {
+		const res = await router.fetch(new Request("http://localhost/api/../admin"), mockInfo);
+		assertEquals(await res.text(), "admin /admin");
+	});
+
+	await t.step("percent-encoded dots too", async () => {
+		const res = await router.fetch(new Request("http://localhost/api/%2e%2e/admin"), mockInfo);
+		assertEquals(await res.text(), "admin /admin");
+	});
+
+	await t.step("a single dot is dropped", async () => {
+		const res = await router.fetch(new Request("http://localhost/api/./thing"), mockInfo);
+		assertEquals(await res.text(), "thing /api/thing");
+	});
+
+	await t.step("climbing past the root stops at it", async () => {
+		const res = await router.fetch(new Request("http://localhost/../../admin"), mockInfo);
+		assertEquals(await res.text(), "admin /admin");
+	});
+
+	await t.step("an encoded slash stays encoded, as the url parser leaves it", async () => {
+		const res = await router.fetch(new Request("http://localhost/api/..%2fadmin"), mockInfo);
+		assertEquals(res.status, 404);
+	});
+});
