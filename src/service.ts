@@ -14,7 +14,7 @@ import { type Infer, type InferInput, type Schema, ValidationError } from "./val
 export type Kind = "query" | "mutation" | "stream";
 
 /**
- * why a call failed. `invalid` carries the validation issues in `details`;
+ * why a call failed. `invalid` carries the validation issues in `details`.
  * a procedure declares the ones it raises itself so the client can narrow
  */
 export type ErrorCode =
@@ -114,7 +114,47 @@ type Accepts<S> = S extends Schema<any, any> ? InferInput<S> : void;
 
 type Yielded<T> = T extends AsyncIterable<infer U> ? U : T extends Iterable<infer U> ? U : never;
 
-type Args<In> = [In] extends [void] ? [] : [input: In];
+/** what any call takes alongside its input */
+export interface CallOptions {
+	/** aborts the request. composed with `timeout` when both are given */
+	signal?: AbortSignal;
+
+	/** aborts the request after this many milliseconds */
+	timeout?: number;
+
+	/** sent with this call only, on top of the client's own headers */
+	headers?: HeadersInit;
+}
+
+/** @internal what a call is invoked with */
+export type CallArgs<In> = [In] extends [void] ? [input?: void, options?: CallOptions]
+	: [input: In, options?: CallOptions];
+
+/**
+ * how a call is reached. over http it can be aborted and given headers,
+ * whilst in process there is no request, so it takes its input and nothing else.
+ */
+export type Transport = "http" | "local";
+
+type Args<In, T extends Transport> = T extends "local" ? ([In] extends [void] ? [] : [input: In])
+	: CallArgs<In>;
+
+/** @internal the signal a call runs under */
+export function callSignal(
+	options: CallOptions | undefined,
+	fallbackTimeout?: number,
+	extra?: AbortSignal,
+): AbortSignal | undefined {
+	const timeout = options?.timeout ?? fallbackTimeout;
+	const signals: AbortSignal[] = [];
+
+	if (extra) signals.push(extra);
+	if (options?.signal) signals.push(options.signal);
+	if (timeout !== undefined) signals.push(AbortSignal.timeout(timeout));
+
+	if (signals.length === 0) return undefined;
+	return signals.length === 1 ? signals[0] : AbortSignal.any(signals);
+}
 
 export interface FormBinding<In> {
 	action: string;
@@ -125,11 +165,15 @@ export interface FormBinding<In> {
 }
 
 /** a mutation */
-export interface Call<In, Out, Code extends ErrorCode> {
-	(...args: Args<In>): Promise<Out>;
+export interface Call<In, Out, Code extends ErrorCode, T extends Transport = "http"> {
+	(...args: Args<In, T>): Promise<Out>;
 
-	/** never throws. returns the value or the typed error */
-	safe(...args: Args<In>): Promise<ServiceResult<Out, Code>>;
+	/**
+	 * runs the call and reports how it went instead of throwing: `{ ok: true,
+	 * value }` or `{ ok: false, error }`, with `error.code` narrowed to what this
+	 * procedure declares
+	 */
+	attempt(...args: Args<In, T>): Promise<ServiceResult<Out, Code>>;
 
 	/** the dotted procedure name, e.g. `"posts.list"` */
 	readonly path: string;
@@ -139,25 +183,26 @@ export interface Call<In, Out, Code extends ErrorCode> {
 }
 
 /** a query */
-export interface QueryCall<In, Out, Code extends ErrorCode> extends Call<In, Out, Code> {
-	get(...args: Args<In>): Promise<Out>;
-	url(...args: Args<In>): string;
+export interface QueryCall<In, Out, Code extends ErrorCode, T extends Transport = "http">
+	extends Call<In, Out, Code, T> {
+	get(...args: Args<In, T>): Promise<Out>;
+	url(...args: Args<In, T>): string;
 }
 
 /** iterate it to open the connection, `close()` to stop early */
-export interface StreamCall<In, Out> {
-	(...args: Args<In>): AsyncIterable<Out> & { close(): void };
+export interface StreamCall<In, Out, T extends Transport = "http"> {
+	(...args: Args<In, T>): AsyncIterable<Out> & { close(): void };
 	readonly path: string;
-	url(...args: Args<In>): string;
+	url(...args: Args<In, T>): string;
 }
 
 /** the callable shape of an api */
-export type Client<R extends Routes> = {
+export type Client<R extends Routes, T extends Transport = "http"> = {
 	[K in keyof R]: R[K] extends Procedure<any, infer Out, infer K2, infer Code, infer In>
-		? K2 extends "stream" ? StreamCall<In, Yielded<Out>>
-		: K2 extends "query" ? QueryCall<In, Out, Code | BuiltinError>
-		: Call<In, Out, Code | BuiltinError>
-		: R[K] extends Routes ? Client<R[K]>
+		? K2 extends "stream" ? StreamCall<In, Yielded<Out>, T>
+		: K2 extends "query" ? QueryCall<In, Out, Code | BuiltinError, T>
+		: Call<In, Out, Code | BuiltinError, T>
+		: R[K] extends Routes ? Client<R[K], T>
 		: never;
 };
 
@@ -192,7 +237,7 @@ export interface Service<R extends Routes> {
 	mount(app: Router): void;
 
 	/** calls procedures in process against `ctx` */
-	caller(ctx: Context): Client<R>;
+	caller(ctx: Context): Client<R, "local">;
 }
 
 export interface ServiceOptions {
@@ -349,7 +394,7 @@ export function asServiceError(error: unknown): ServiceError {
 	return new ServiceError("internal", "internal error");
 }
 
-const LEAF_KEYS = ["path", "url", "get", "safe", "form"] as const;
+const LEAF_KEYS = ["path", "url", "get", "attempt", "form"] as const;
 
 const NEVER = new Set(["then", "catch", "finally"]);
 
@@ -473,7 +518,7 @@ export function service<const R extends Routes>(
 		},
 
 		caller(ctx) {
-			return nest<Client<R>>((path) => {
+			return nest<Client<R, "local">>((path) => {
 				const info = byPath.get(path);
 				if (!info) return () => {};
 				const { procedure } = info;
@@ -512,7 +557,7 @@ export function service<const R extends Routes>(
 					get: call,
 					form: (formOptions?: { multipart?: boolean }) =>
 						formBinding(info.url, procedure.kind === "mutation" ? "post" : "get", formOptions),
-					async safe(input?: unknown) {
+					async attempt(input?: unknown) {
 						try {
 							return { ok: true as const, value: await call(input) };
 						} catch (error) {
@@ -607,6 +652,9 @@ export interface ClientOptions {
 
 	/** sent with every request, e.g. an authorization header */
 	headers?: HeadersInit | (() => HeadersInit);
+
+	/** aborts any call that takes longer than this, unless the call says otherwise */
+	timeout?: number;
 }
 
 /** the same callable shape as `api.caller(ctx)`, over http */
@@ -617,11 +665,12 @@ export function createClient<S extends Service<Routes>>(
 	const prefix = trimSlashes(options.prefix ?? DEFAULT_PREFIX);
 	const doFetch = options.fetch ?? fetch;
 
-	const computeHeaders = (extra?: Record<string, string>) => {
+	const computeHeaders = (extra?: Record<string, string>, call?: CallOptions) => {
 		const headers = new Headers(
 			typeof options.headers === "function" ? options.headers() : options.headers,
 		);
 		for (const [name, value] of Object.entries(extra ?? {})) headers.set(name, value);
+		for (const [name, value] of new Headers(call?.headers)) headers.set(name, value);
 		return headers;
 	};
 
@@ -651,18 +700,23 @@ export function createClient<S extends Service<Routes>>(
 		const endpoint = `${base}${prefix}/${path}`;
 		const url = (input?: unknown) => `${endpoint}${encodeQuery(input)}`;
 
-		const post = (input?: unknown) =>
+		const post = (input?: unknown, call?: CallOptions) =>
 			doFetch(endpoint, {
 				method: "POST",
-				headers: computeHeaders({ "content-type": "application/json" }),
+				headers: computeHeaders({ "content-type": "application/json" }, call),
 				body: JSON.stringify(input ?? null),
+				signal: callSignal(call, options.timeout),
 			}).then(read);
 
-		const get = (input?: unknown) => doFetch(url(input), { headers: computeHeaders() }).then(read);
+		const get = (input?: unknown, call?: CallOptions) =>
+			doFetch(url(input), {
+				headers: computeHeaders(undefined, call),
+				signal: callSignal(call, options.timeout),
+			}).then(read);
 
-		async function* stream(input: unknown, signal: AbortSignal) {
+		async function* stream(input: unknown, signal: AbortSignal | undefined, call?: CallOptions) {
 			const response = await doFetch(url(input), {
-				headers: computeHeaders({ accept: "text/event-stream" }),
+				headers: computeHeaders({ accept: "text/event-stream" }, call),
 				signal,
 			});
 			if (!response.ok) throw await fail(response);
@@ -670,16 +724,18 @@ export function createClient<S extends Service<Routes>>(
 			for await (const data of consume(response.body)) yield JSON.parse(data);
 		}
 
-		const invoke = (input?: unknown) => {
+		const invoke = (input?: unknown, call?: CallOptions) => {
 			let sent: Promise<unknown> | undefined;
-			const send = () => sent ??= post(input);
+			const send = () => sent ??= post(input, call);
+
 			const controller = new AbortController();
+			const signal = callSignal(call, undefined, controller.signal);
 
 			return {
 				then: (ok: any, err: any) => send().then(ok, err),
 				catch: (err: any) => send().catch(err),
 				finally: (fn: () => void) => send().finally(fn),
-				[Symbol.asyncIterator]: () => stream(input, controller.signal)[Symbol.asyncIterator](),
+				[Symbol.asyncIterator]: () => stream(input, signal, call)[Symbol.asyncIterator](),
 				close: () => controller.abort(),
 			};
 		};
@@ -690,9 +746,9 @@ export function createClient<S extends Service<Routes>>(
 			get,
 			form: (formOptions?: { multipart?: boolean }) =>
 				formBinding(`${base}${prefix}/${path}`, "post", formOptions),
-			async safe(input?: unknown) {
+			async attempt(input?: unknown, call?: CallOptions) {
 				try {
-					return { ok: true as const, value: await post(input) };
+					return { ok: true as const, value: await post(input, call) };
 				} catch (error) {
 					return { ok: false as const, error: asServiceError(error) };
 				}

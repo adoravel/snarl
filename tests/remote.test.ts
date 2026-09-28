@@ -126,7 +126,7 @@ Deno.test("remote: their errors become ours, with the status they chose", async 
 	try {
 		const client = createRemoteClient(billing(up.url));
 
-		const missing = await client.invoices.get.safe({ id: "in_9" });
+		const missing = await client.invoices.get.attempt({ id: "in_9" });
 		assert(!missing.ok);
 		assertEquals(missing.error.code, "not_found");
 		assertEquals(missing.error.status, 404);
@@ -138,7 +138,7 @@ Deno.test("remote: their errors become ours, with the status they chose", async 
 					? { code: "conflict", message: "already paid" }
 					: undefined,
 		});
-		const conflict = await mapped.invoices.void.safe({ id: "in_paid" });
+		const conflict = await mapped.invoices.void.attempt({ id: "in_paid" });
 		assert(!conflict.ok);
 		assertEquals(conflict.error.code, "conflict");
 		assertEquals(conflict.error.message, "already paid");
@@ -155,7 +155,7 @@ Deno.test("remote: the output schema catches the boundary you don't control", as
 	try {
 		const client = createRemoteClient(billing(up.url));
 
-		const drifted = await client.invoices.get.safe({ id: "in_drift" });
+		const drifted = await client.invoices.get.attempt({ id: "in_drift" });
 		assert(!drifted.ok);
 		assertEquals(drifted.error.code, "invalid");
 		assert(drifted.error.message.includes("unexpected shape"), drifted.error.message);

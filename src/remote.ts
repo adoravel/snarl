@@ -8,6 +8,9 @@ import {
 	asServiceError,
 	type BuiltinError,
 	type Call,
+	type CallArgs,
+	type CallOptions,
+	callSignal,
 	CODE_BY_STATUS,
 	type ErrorCode,
 	type FormBinding,
@@ -24,21 +27,55 @@ export type Verb = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 const SENDS_BODY: ReadonlySet<Verb> = new Set(["POST", "PUT", "PATCH"]);
 
-/** `:name` in a declared path, filled from the input */
 const PARAM_RE = /:([A-Za-z_][A-Za-z0-9_]*)/g;
 
-export interface EndpointDefinition<S, Out, E extends readonly ErrorCode[]> {
+/** an endpoint path that names its own origin rather than the remote's */
+const ABSOLUTE_RE = /^[a-z][a-z0-9+.-]*:\/\//i;
+
+/**
+ * - `json` — `application/json`, the default for a verb that carries a body
+ * - `form` — `application/x-www-form-urlencoded`, which oauth token exchange wants
+ * - `multipart` — `FormData`, for an upload
+ * - `text` — the input verbatim, as `text/plain`
+ * - `raw` — the input as-is (bytes, a `Blob`, a stream); no content type is set
+ * - `none` — no body at all
+ */
+export type BodyFormat = "json" | "form" | "multipart" | "text" | "raw" | "none";
+
+/**
+ * - `json` — parsed, then checked against `output`. the default
+ * - `text` — the body as a string
+ * - `bytes` — a `Uint8Array`
+ * - `stream` — the body, unread, for proxying it somewhere else
+ * - `response` — the whole `Response`
+ * - `none` — the body is discarded and nothing is returned
+ */
+export type ResponseFormat = "json" | "text" | "bytes" | "stream" | "response" | "none";
+
+export interface EndpointDefinition<S, O, E extends readonly ErrorCode[], F> {
 	/** input `v` schema */
 	input?: S;
 
-	/** outpiut `v` schema */
-	output?: Schema<Out, any>;
+	/** output `v` schema */
+	output?: O;
 
 	/** the codes this endpoint raises, which the client narrows `error.code` to */
 	errors?: E;
 
 	/** sent with this endpoint only, on top of the client's own headers */
 	headers?: Record<string, string>;
+
+	/**
+	 * how the input is sent. defaults to `json` for `POST`/`PUT`/`PATCH`, and a
+	 * function is the way out when an api wants something none of the formats are
+	 */
+	body?: BodyFormat | ((input: any) => BodyInit | null);
+
+	/** how the response is read. defaults to `json` */
+	response?: F;
+
+	/** how the leftover input becomes a query string, without the `?` */
+	query?: (input: Record<string, unknown>) => string;
 }
 
 export interface Endpoint<
@@ -58,6 +95,9 @@ export interface Endpoint<
 	readonly output?: Schema<Out, any>;
 	readonly errors?: readonly Code[];
 	readonly headers?: Record<string, string>;
+	readonly body?: BodyFormat | ((input: any) => BodyInit | null);
+	readonly response?: ResponseFormat;
+	readonly query?: (input: Record<string, unknown>) => string;
 }
 
 export type AnyEndpoint = Endpoint<any, any, ErrorCode, any, boolean>;
@@ -70,15 +110,24 @@ export interface RemoteRoutes {
 type Parsed<S> = S extends Schema<any, any> ? Infer<S> : void;
 type Accepts<S> = S extends Schema<any, any> ? InferInput<S> : void;
 
+type ByFormat<F> = F extends "response" ? Response
+	: F extends "stream" ? ReadableStream<Uint8Array>
+	: F extends "bytes" ? Uint8Array
+	: F extends "text" ? string
+	: F extends "none" ? void
+	: unknown;
+
+type Produced<O, F> = O extends Schema<any, any> ? Infer<O> : ByFormat<F>;
+
 /** a call to somebody else's endpoint */
 export interface RemoteCall<In, Out, Code extends ErrorCode> extends Call<In, Out, Code> {
-	url(...args: [In] extends [void] ? [] : [input: In]): string;
+	url(...args: CallArgs<In>): string;
 }
 
 export interface RemoteStream<In, Out> {
-	(...args: [In] extends [void] ? [] : [input: In]): AsyncIterable<Out> & { close(): void };
+	(...args: CallArgs<In>): AsyncIterable<Out> & { close(): void };
 	readonly path: string;
-	url(...args: [In] extends [void] ? [] : [input: In]): string;
+	url(...args: CallArgs<In>): string;
 }
 
 /** the callable shape of a remote api */
@@ -114,6 +163,9 @@ export interface RemoteOptions {
 	/** the fetch to use. defaults to the global one */
 	fetch?: typeof fetch;
 
+	/** aborts any call that takes longer than this, unless the call says otherwise */
+	timeout?: number;
+
 	/**
 	 * turns somebody else's error body into a code and a message. without it
 	 * the status decides the code and the body is kept as `details`
@@ -121,6 +173,7 @@ export interface RemoteOptions {
 	onError?: (
 		response: Response,
 		body: unknown,
+		endpoint: RemoteInfo,
 	) => { code: ErrorCode; message: string } | undefined;
 }
 
@@ -152,10 +205,15 @@ function* walk(
 
 /** declares one endpoint */
 export interface EndpointBuilder<Streaming extends boolean> {
-	<S extends Schema<any, any> | undefined, Out, const E extends readonly ErrorCode[] = []>(
+	<
+		S extends Schema<any, any> | undefined = undefined,
+		O extends Schema<any, any> | undefined = undefined,
+		const E extends readonly ErrorCode[] = [],
+		F extends ResponseFormat = "json",
+	>(
 		path: string,
-		definition?: EndpointDefinition<S, Out, E>,
-	): Endpoint<Parsed<S>, Awaited<Out>, E[number], Accepts<S>, Streaming>;
+		definition?: EndpointDefinition<S, O, E, F>,
+	): Endpoint<Parsed<S>, Produced<O, F>, E[number], Accepts<S>, Streaming>;
 }
 
 function define<Streaming extends boolean>(
@@ -200,10 +258,11 @@ export function remote<const R extends RemoteRoutes>(url: string, routes: R): Re
 function fillPath(
 	template: string,
 	input: unknown,
-): { path: string; rest: Record<string, unknown> | undefined } {
+): { path: string; rest: unknown } {
 	if (input === undefined || input === null || typeof input !== "object") {
-		return { path: template, rest: undefined };
+		return { path: template, rest: input };
 	}
+	if (!isPlainObject(input)) return { path: template, rest: input };
 
 	const values = input as Record<string, unknown>;
 	const used = new Set<string>();
@@ -219,16 +278,64 @@ function fillPath(
 	return { path, rest };
 }
 
-function queryString(rest: Record<string, unknown> | undefined): string {
-	if (!rest) return "";
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	if (value === null || typeof value !== "object") return false;
+	const proto = Object.getPrototypeOf(value);
+	return proto === Object.prototype || proto === null;
+}
+
+function searchParams(rest: Record<string, unknown>): URLSearchParams {
 	const params = new URLSearchParams();
 	for (const [key, value] of Object.entries(rest)) {
 		if (value === undefined || value === null) continue;
 		if (Array.isArray(value)) { for (const item of value) params.append(key, String(item)); }
 		else params.append(key, String(value));
 	}
-	const query = params.toString();
-	return query ? `?${query}` : "";
+	return params;
+}
+
+function queryString(endpoint: AnyEndpoint, rest: unknown, url: string): string {
+	if (!isPlainObject(rest)) return "";
+	
+	const query = endpoint.query ? endpoint.query(rest) : searchParams(rest).toString();
+	if (!query) return "";
+
+	return `${url.includes("?") ? "&" : "?"}${query}`;
+}
+
+function encodeBody(
+	endpoint: AnyEndpoint,
+	rest: unknown,
+): { body: BodyInit | null; type?: string } {
+	const format = endpoint.body ?? "json";
+
+	if (typeof format === "function") return { body: format(rest) };
+	if (format === "none" || rest === undefined) return { body: null };
+
+	switch (format) {
+		case "form":
+			return {
+				body: isPlainObject(rest) ? searchParams(rest) : String(rest),
+				type: "application/x-www-form-urlencoded;charset=UTF-8",
+			};
+		case "multipart": {
+			const form = new FormData();
+			if (isPlainObject(rest)) {
+				for (const [key, value] of Object.entries(rest)) {
+					if (value === undefined || value === null) continue;
+					if (Array.isArray(value)) { for (const item of value) form.append(key, item as string); }
+					else form.append(key, value as string);
+				}
+			}
+			return { body: form };
+		}
+		case "text":
+			return { body: String(rest), type: "text/plain;charset=UTF-8" };
+		case "raw":
+			return { body: rest as BodyInit };
+		default:
+			return { body: JSON.stringify(rest), type: "application/json" };
+	}
 }
 
 /**
@@ -242,16 +349,23 @@ export function createRemoteClient<R extends RemoteRoutes>(
 	const doFetch = options.fetch ?? fetch;
 	const byPath = new Map(api.list().map((info) => [info.path, info]));
 
-	const computeHeaders = (endpoint: AnyEndpoint, extra?: Record<string, string>) => {
+	const computeHeaders = (
+		endpoint: AnyEndpoint,
+		extra?: Record<string, string>,
+		call?: CallOptions,
+	) => {
 		const headers = new Headers(
 			typeof options.headers === "function" ? options.headers() : options.headers,
 		);
-		for (const [name, value] of Object.entries(endpoint.headers ?? {})) headers.set(name, value);
+		
 		for (const [name, value] of Object.entries(extra ?? {})) headers.set(name, value);
+		for (const [name, value] of Object.entries(endpoint.headers ?? {})) headers.set(name, value);
+		for (const [name, value] of new Headers(call?.headers)) headers.set(name, value);
+
 		return headers;
 	};
 
-	async function fail(response: Response, endpoint: AnyEndpoint): Promise<ServiceError> {
+	async function fail(response: Response, info: RemoteInfo): Promise<ServiceError> {
 		const body = await response.text().then((text) => {
 			try {
 				return JSON.parse(text);
@@ -259,18 +373,39 @@ export function createRemoteClient<R extends RemoteRoutes>(
 				return text || undefined;
 			}
 		});
-		const mapped = options.onError?.(response, body);
+		const mapped = options.onError?.(response, body, info);
 		if (mapped) return new ServiceError(mapped.code, mapped.message, body);
 
 		const code = CODE_BY_STATUS.get(response.status) ?? "internal";
 		const failure = new ServiceError(
 			code,
-			response.statusText || `${endpoint.verb} failed (${response.status})`,
+			response.statusText || `${info.verb} failed (${response.status})`,
 			body,
 		);
 
 		failure.status = response.status;
 		return failure;
+	}
+
+	async function decode(response: Response, endpoint: AnyEndpoint): Promise<unknown> {
+		switch (endpoint.response ?? "json") {
+			case "response":
+				return response;
+			case "stream":
+				return response.body ?? new Response("").body;
+			case "bytes":
+				return new Uint8Array(await response.arrayBuffer());
+			case "text":
+				return check(endpoint, await response.text());
+			case "none":
+				await response.body?.cancel();
+				return undefined;
+			default: {
+				if (response.status === 204) return check(endpoint, undefined);
+				const text = await response.text();
+				return check(endpoint, text === "" ? undefined : JSON.parse(text));
+			}
+		}
 	}
 
 	function check(endpoint: AnyEndpoint, value: unknown): unknown {
@@ -306,46 +441,53 @@ export function createRemoteClient<R extends RemoteRoutes>(
 		if (!info) return () => {};
 		const { endpoint, verb } = info;
 
+		const origin = ABSOLUTE_RE.test(endpoint.path) ? "" : api.url;
+
 		const request = (raw?: unknown) => {
 			const parsed = validate(endpoint, raw);
 			const { path: filled, rest } = fillPath(endpoint.path, parsed ?? raw);
-			const sendsBody = SENDS_BODY.has(verb);
-			return {
-				url: `${api.url}${filled}${sendsBody ? "" : queryString(rest)}`,
-				body: sendsBody && rest !== undefined ? JSON.stringify(rest) : undefined,
-			};
+			const target = `${origin}${filled}`;
+			const sendsBody = SENDS_BODY.has(verb) && endpoint.body !== "none";
+
+			return sendsBody
+				? { url: target, ...encodeBody(endpoint, rest) }
+				: { url: `${target}${queryString(endpoint, rest, target)}`, body: null };
 		};
 
 		const url = (raw?: unknown) => request(raw).url;
 
-		const call = async (raw?: unknown) => {
-			const { url, body } = request(raw);
+		const call = async (raw?: unknown, callOptions?: CallOptions) => {
+			const { url, body, type } = request(raw) as
+				& { url: string; body: BodyInit | null }
+				& { type?: string };
+
 			const response = await doFetch(url, {
 				method: verb,
-				headers: computeHeaders(
-					endpoint,
-					body ? { "content-type": "application/json" } : undefined,
-				),
+				headers: computeHeaders(endpoint, type ? { "content-type": type } : undefined, callOptions),
 				body,
+				signal: callSignal(callOptions, options.timeout),
 			});
-			if (!response.ok) throw await fail(response, endpoint);
-			if (response.status === 204) return check(endpoint, undefined);
-			const text = await response.text();
-			return check(endpoint, text === "" ? undefined : JSON.parse(text));
+			if (!response.ok && endpoint.response !== "response") throw await fail(response, info);
+
+			return await decode(response, endpoint);
 		};
 
 		if (endpoint.streaming) {
-			const open = (raw?: unknown) => {
+			const open = (raw?: unknown, callOptions?: CallOptions) => {
 				const controller = new AbortController();
+				const signal = callSignal(callOptions, options.timeout, controller.signal);
 				const iterator = (async function* () {
 					const response = await doFetch(url(raw), {
 						method: verb,
-						headers: computeHeaders(endpoint, { accept: "text/event-stream" }),
-						signal: controller.signal,
+						headers: computeHeaders(endpoint, { accept: "text/event-stream" }, callOptions),
+						signal,
 					});
-					if (!response.ok) throw await fail(response, endpoint);
+					if (!response.ok) throw await fail(response, info);
 					if (!response.body) return;
-					for await (const data of consume(response.body)) yield check(endpoint, JSON.parse(data));
+					const asText = endpoint.response === "text";
+					for await (const data of consume(response.body)) {
+						yield check(endpoint, asText ? data : JSON.parse(data));
+					}
 				})();
 				return Object.assign({ [Symbol.asyncIterator]: () => iterator }, {
 					close: () => controller.abort(),
@@ -359,9 +501,9 @@ export function createRemoteClient<R extends RemoteRoutes>(
 			url,
 			form: (formOptions?: { multipart?: boolean }): FormBinding<unknown> =>
 				formBinding(url(), verb === "GET" ? "get" : "post", formOptions),
-			async safe(raw?: unknown) {
+			async attempt(raw?: unknown, callOptions?: CallOptions) {
 				try {
-					return { ok: true as const, value: await call(raw) };
+					return { ok: true as const, value: await call(raw, callOptions) };
 				} catch (error) {
 					return { ok: false as const, error: asServiceError(error) };
 				}

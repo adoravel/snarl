@@ -126,10 +126,10 @@ Deno.test("service: the caller runs handlers in process", async () => {
 		"a custom path is used as declared",
 	);
 
-	const found = await caller.posts.byId.safe({ id: 1 });
+	const found = await caller.posts.byId.attempt({ id: 1 });
 	assert(found.ok && found.value.title === "one");
 
-	const missing = await caller.posts.byId.safe({ id: 9 });
+	const missing = await caller.posts.byId.attempt({ id: 9 });
 	assert(!missing.ok);
 	assertEquals(missing.error.code, "not_found");
 	assertEquals(missing.error.status, 404);
@@ -138,7 +138,7 @@ Deno.test("service: the caller runs handlers in process", async () => {
 		assert(missing.error.code !== "teapot");
 	}
 
-	const invalid = await caller.posts.create.safe({ title: "" });
+	const invalid = await caller.posts.create.attempt({ title: "" });
 	assert(!invalid.ok);
 	assertEquals(invalid.error.code, "invalid");
 	assertEquals(invalid.error.details, [{
@@ -254,7 +254,7 @@ Deno.test("service: the http client is the same shape as the caller", async () =
 		"/api/posts.list?page=2&tag=a&tag=b",
 	);
 
-	const conflict = await client.posts.create.safe({ title: "one" });
+	const conflict = await client.posts.create.attempt({ title: "one" });
 	assert(!conflict.ok);
 	assertEquals(conflict.error.code, "conflict");
 	assertEquals(conflict.error.message, "that title is taken");
@@ -266,6 +266,41 @@ Deno.test("service: the http client is the same shape as the caller", async () =
 	const streamed: Post[] = [];
 	for await (const post of client.posts.tail({ from: 0 })) streamed.push(post);
 	assertEquals(streamed, posts);
+});
+
+Deno.test("service: a call can be given headers, a timeout and a signal", async () => {
+	const app = createRouter();
+	api.mount(app);
+
+	const seen: (string | null)[] = [];
+	const client = createClient<typeof api>({
+		headers: { "x-from": "client" },
+		fetch: (input, init) => {
+			const request = new Request(
+				new URL(String(input instanceof Request ? input.url : input), "http://localhost"),
+				init instanceof Object ? init : undefined,
+			);
+
+			seen.push(request.headers.get("x-from"));
+						if (request.signal.aborted) return Promise.reject(new Error("aborted before sending"));
+			
+			return app.fetch(request, mockInfo);
+		},
+	});
+
+	assertEquals(await client.version(), "1.4.4");
+	assertEquals(seen, ["client"]);
+
+	assertEquals(await client.version(undefined, { headers: { "x-from": "call" } }), "1.4.4");
+	assertEquals(seen.at(-1), "call", "a per-call header beats the client's own");
+
+	const controller = new AbortController();
+	controller.abort();
+	await assertRejects(() => client.posts.touch(undefined, { signal: controller.signal }));
+
+	const local = api.caller(null as never);
+	const _local: Equal<Parameters<typeof local.version>, []> = true;
+	assert(_local);
 });
 
 Deno.test("service: an unexpected throw is an internal error", async () => {
@@ -318,7 +353,7 @@ Deno.test("service: guards refine the context", async () => {
 	const _level: Equal<Args["level"], 9> = true;
 	assert(_extra && _level);
 
-	type Failure = Extract<Awaited<ReturnType<typeof caller.purge.safe>>, { ok: false }>;
+	type Failure = Extract<Awaited<ReturnType<typeof caller.purge.attempt>>, { ok: false }>;
 	const _codes: Equal<
 		Failure["error"]["code"],
 		"unauthorised" | "forbidden" | "invalid" | "bad_request" | "internal"
@@ -376,7 +411,7 @@ Deno.test("service: guards refine the context", async () => {
 		params: {},
 		cookies: { get: () => null },
 	} as never;
-	const rejected = await api.caller(anonymousCtx).me.safe();
+	const rejected = await api.caller(anonymousCtx).me.attempt();
 	assert(!rejected.ok && rejected.error.code === "unauthorised");
 });
 
@@ -423,7 +458,7 @@ Deno.test("service: a mutation is a form target", async () => {
 });
 
 Deno.test("service: a procedure can't be named after a client helper", () => {
-	for (const name of ["get", "url", "safe", "form", "path", "then"]) {
+	for (const name of ["get", "url", "attempt", "form", "path", "then"]) {
 		assertThrows(
 			() => service({ posts: { [name]: service.query({ handler: () => 1 }) } }),
 			Error,
