@@ -18,6 +18,49 @@ export interface IslandWrapperOptions {
 	as?: string;
 }
 
+export type Serialisable =
+	| string
+	| number
+	| boolean
+	| null
+	| undefined
+	| readonly Serialisable[]
+	| { readonly [key: string]: Serialisable };
+
+declare const why: unique symbol;
+
+/** what a prop that cannot reach the browser collapses to */
+export interface NotSerialisable {
+	readonly [why]:
+		"an island prop crosses to the browser as JSON. pass a plain object, array, string, number, boolean or null; for state the two sides share, use sharedSignal(key, initial)";
+}
+
+/** the values `assertSerialisableProps` throws on, as a type */
+type Foreign =
+	| bigint
+	| symbol
+	| Set<unknown>
+	| Map<unknown, unknown>
+	| WeakSet<object>
+	| WeakMap<object, unknown>
+	| RegExp
+	| Promise<unknown>
+	| ArrayBuffer;
+
+type Foreignness<T, Depth extends readonly unknown[] = []> = Depth["length"] extends 8 ? never
+	: 0 extends 1 & T ? never
+	: T extends Foreign ? T
+	: T extends (...args: never[]) => unknown ? T
+	: T extends readonly (infer Item)[] ? Foreignness<Item, [...Depth, unknown]>
+	: T extends object ? Foreignness<T[keyof T], [...Depth, unknown]>
+	: never;
+
+export type IslandProps<P> = {
+	[K in keyof P]: K extends "children" ? P[K]
+		: [Foreignness<P[K]>] extends [never] ? P[K]
+		: NotSerialisable;
+};
+
 /**
  * @param name a stable id, unique across the app
  * @param Component the plain isomorphic component to wrap
@@ -26,7 +69,7 @@ export interface IslandWrapperOptions {
 export function island<P extends Record<string, unknown>>(
 	meta: IslandMeta,
 	options: IslandWrapperOptions = {},
-): (props: P) => JSX.Element {
+): (props: IslandProps<P>) => JSX.Element {
 	const tag = options.as ?? "div";
 	const Component = meta.Component as (props: P) => JSX.Node;
 
@@ -61,7 +104,7 @@ export function island<P extends Record<string, unknown>>(
 		configurable: true,
 	});
 
-	return IslandWrapper;
+	return IslandWrapper as (props: IslandProps<P>) => JSX.Element;
 }
 
 const KNOWN_NON_SERIALISABLE = [
