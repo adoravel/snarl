@@ -165,7 +165,8 @@ if (!result.ok && result.error.code === "conflict") … // :3
 
 #### apis that do not want json
 
-real apis are not uniform, so `body` and `response` say what an endpoint actually speaks and call site stays the same:
+real apis are not uniform, so `body` and `response` say what an endpoint actually speaks and call
+site stays the same:
 
 ```ts
 const discord = remote("https://discord.com/api/v10", {

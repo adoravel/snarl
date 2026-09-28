@@ -282,8 +282,8 @@ Deno.test("service: a call can be given headers, a timeout and a signal", async 
 			);
 
 			seen.push(request.headers.get("x-from"));
-						if (request.signal.aborted) return Promise.reject(new Error("aborted before sending"));
-			
+			if (request.signal.aborted) return Promise.reject(new Error("aborted before sending"));
+
 			return app.fetch(request, mockInfo);
 		},
 	});

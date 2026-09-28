@@ -296,7 +296,7 @@ function searchParams(rest: Record<string, unknown>): URLSearchParams {
 
 function queryString(endpoint: AnyEndpoint, rest: unknown, url: string): string {
 	if (!isPlainObject(rest)) return "";
-	
+
 	const query = endpoint.query ? endpoint.query(rest) : searchParams(rest).toString();
 	if (!query) return "";
 
@@ -357,7 +357,7 @@ export function createRemoteClient<R extends RemoteRoutes>(
 		const headers = new Headers(
 			typeof options.headers === "function" ? options.headers() : options.headers,
 		);
-		
+
 		for (const [name, value] of Object.entries(extra ?? {})) headers.set(name, value);
 		for (const [name, value] of Object.entries(endpoint.headers ?? {})) headers.set(name, value);
 		for (const [name, value] of new Headers(call?.headers)) headers.set(name, value);
