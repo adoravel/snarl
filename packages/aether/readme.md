@@ -87,6 +87,8 @@ app.serve({ port: 8000 });
 | **`<await for fallback catch>`**              | renders the fallback until the promise settles                              |
 | **`<for virtual={{ itemSize }}>`**            | windowed list: only the rows near the viewport exist                        |
 | **setEffectErrorHandler(fn)**                 | where a throwing effect is reported. the default logs and carries on        |
+| **IslandProps\<P\>**                          | `P` with every prop but `children` required to survive JSON                 |
+| **Serialisable**                              | what an island prop may be, for annotating your own props                   |
 | **aether(?options)**                          | Middleware that discovers islands and serves client bundles                 |
 
 [`@404/aether`]: https://kyu.re/~snarl

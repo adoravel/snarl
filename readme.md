@@ -12,9 +12,11 @@ composable middleware system with automatic dependency resolution, and native st
 - chainable context helpers and type-safe request/response handling
 - composable middleware stack with built-in support for CORS, logging, security headers, rate
   limiting
-- ETag caching (weak + strong), `Range` requests, dotfile protection, and streaming responses
+- ETag caching for static files (weak + strong) and for anything a route builds (`etag()`), `Range`
+  requests, dotfile protection, and streaming responses
 - first-class SSE and WebSocket support with abort-safe async iterables
-- lightweight server-side rendering with escaping, style objects, and fragment support
+- lightweight server-side rendering with escaping, style objects, and fragment support, either to a
+  string or streamed as it renders (`ctx.htmlStream`)
 - automatic JSON, form-urlencoded, and multipart file upload handling with size limits
 - a typed `service` api: functions that are also ordinary http endpoints, callable in process or
   from the browser through the same call site
@@ -156,7 +158,32 @@ const billing = remote("https://billing.internal", {
 const client = createRemoteClient(billing, { headers: () => ({ authorization: `Bearer ${key}` }) });
 
 const invoice = await client.invoices.get({ id: "in_1" });
-const result = await client.invoices.void.safe({ id: "in_1" });
+const result = await client.invoices.void.attempt({ id: "in_1" });
 
 if (!result.ok && result.error.code === "conflict") … // :3
+```
+
+#### apis that do not want json
+
+real apis are not uniform, so `body` and `response` say what an endpoint actually speaks and call site stays the same:
+
+```ts
+const discord = remote("https://discord.com/api/v10", {
+	// an oauth exchange takes a form, not json
+	token: endpoint.post("/oauth2/token", {
+		input: v({ grant_type: v.string(), code: v.string(), redirect_uri: v.string() }),
+		output: v({ access_token: v.string(), expires_in: v.number() }),
+		body: "form",
+	}),
+	// a webhook wants nothing back, and nothing said about it if it fails
+	notify: endpoint.post("/webhooks/:id/:token", { input: Message, response: "none" }),
+	// an avatar is bytes to hand on, not a shape to parse
+	avatar: endpoint.get("https://cdn.discordapp.com/avatars/:user/:hash.webp", {
+		input: v({ user: v.string(), hash: v.string() }),
+		response: "stream",
+	}),
+});
+
+await discord.notify.attempt(message); // fire & forget
+return new Response(await discord.avatar({ user, hash }), { headers });
 ```
