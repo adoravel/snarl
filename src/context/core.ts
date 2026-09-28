@@ -13,7 +13,14 @@ import {
 	TooManyRequestsError,
 	UnauthorizedError,
 } from "../errors.ts";
-import { isJsxElement, type JSX, renderToString } from "../jsx-runtime.ts";
+import {
+	DOCTYPE_RE,
+	isJsxElement,
+	type JSX,
+	type RenderStreamOptions,
+	renderToStream,
+	renderToString,
+} from "../jsx-runtime.ts";
 import { type BodyReader, createBodyReader } from "./body.ts";
 import { entriesToObject, type Infer, type Schema } from "../validate.ts";
 import { createMultipartReader, type MultipartOptions, type MultipartResult } from "./multipart.ts";
@@ -32,7 +39,6 @@ export class QueryParams extends URLSearchParams {
 }
 
 const encoder = new TextEncoder();
-const DOCTYPE_RE = /^\s*<!doctype\b/i;
 
 const JSON_INIT: ResponseInit = { headers: new Headers({ "Content-Type": "application/json" }) };
 const TEXT_INIT: ResponseInit = {
@@ -150,6 +156,23 @@ export class Context<Params = Record<string, string>> {
 
 		if (typeof body === "string") return this.finishHtml(body, init);
 		return Promise.resolve(body).then((resolved) => this.finishHtml(String(resolved ?? ""), init));
+	}
+
+	/**
+	 * sends html as a stream, flushing each part of the page as it is rendered
+	 * rather than waiting for the slowest one.
+	 */
+	htmlStream(
+		content: JSX.Node,
+		init?: ResponseInit & { autoDoctype?: boolean } & RenderStreamOptions,
+	): Response {
+		const body = renderToStream(content, {
+			onError: init?.onError,
+			doctype: init?.autoDoctype !== false,
+		});
+
+		if (!this.hasCustomHeaders() && isDefaultInit(init)) return new Response(body, HTML_INIT);
+		return this.response(body, "text/html; charset=utf-8", init);
 	}
 
 	finishHtml(body: string, init?: ResponseInit & { autoDoctype?: boolean }): Response {

@@ -283,6 +283,19 @@ export function jsx<P extends JSX.Props = JSX.Props>(
 	return el;
 }
 
+function openTag(tag: string, props: JSX.Props): string {
+	let html = `<${tag}`;
+	for (const name in props) {
+		if (name === "children" || name === "dangerouslySetInnerHTML" || name === "key") continue;
+
+		if (Object.prototype.hasOwnProperty.call(props, name)) {
+			const attr = jsxAttr(name, props[name]);
+			if (attr) html += " " + attr;
+		}
+	}
+	return html + ">";
+}
+
 function renderJsx(element: JSX.Element, raw = false): string | Promise<string> {
 	const { tag, props } = element;
 
@@ -304,16 +317,7 @@ function renderJsx(element: JSX.Element, raw = false): string | Promise<string> 
 		throw new TypeError(`invalid jsx tag type: ${typeof tag}`);
 	}
 
-	let html = `<${tag}`;
-	for (const name in props) {
-		if (name === "children" || name === "dangerouslySetInnerHTML" || name === "key") continue;
-
-		if (Object.prototype.hasOwnProperty.call(props, name)) {
-			const attr = jsxAttr(name, props[name]);
-			if (attr) html += " " + attr;
-		}
-	}
-	html += ">";
+	const html = openTag(tag, props);
 
 	if (voidTags.has(tag)) return html;
 	if (props.dangerouslySetInnerHTML != null) {
@@ -337,6 +341,160 @@ function renderJsx(element: JSX.Element, raw = false): string | Promise<string> 
 		return (inner as Promise<string>).then((c) => html + c + `</${tag}>`);
 	}
 	return html + inner + `</${tag}>`;
+}
+
+export interface RenderStreamOptions {
+	/** called when a subtree throws or rejects */
+	onError?: (error: unknown) => void;
+
+	/** prepend `<!DOCTYPE html>` unless the document already opens with one */
+	doctype?: boolean;
+}
+
+export const DOCTYPE_RE = /^\s*<!doctype\b/i;
+
+async function* withDoctype(parts: AsyncGenerator<string>): AsyncGenerator<string> {
+	let next = await parts.next();
+	while (!next.done && next.value === "") next = await parts.next();
+
+	if (next.done) {
+		yield "<!DOCTYPE html>";
+		return;
+	}
+	yield DOCTYPE_RE.test(next.value) ? next.value : `<!DOCTYPE html>${next.value}`;
+	yield* parts;
+}
+
+const COMPONENT_ERROR = "<!-- error rendering component -->";
+
+async function* streamNode(
+	node: unknown,
+	raw: boolean,
+	options: RenderStreamOptions,
+): AsyncGenerator<string> {
+	if (node == null || typeof node !== "object") {
+		yield renderTrusted(node, raw) as string;
+		return;
+	}
+
+	if (typeof (node as { then?: unknown }).then === "function") {
+		let resolved: unknown;
+		try {
+			resolved = await (node as Promise<unknown>);
+		} catch (error) {
+			log.error("snarl/jsx:", "error rendering component:", error);
+			options.onError?.(error);
+			yield COMPONENT_ERROR;
+			return;
+		}
+		yield* streamNode(resolved, raw, options);
+		return;
+	}
+
+	if (Array.isArray(node)) {
+		for (const child of node) yield* streamNode(child, raw, options);
+		return;
+	}
+
+	if (isJsxElement(node)) {
+		yield* streamJsx(node, raw, options);
+		return;
+	}
+
+	const rendered = renderTrusted(node, raw);
+	yield typeof rendered === "string" ? rendered : await rendered;
+}
+
+async function* streamJsx(
+	element: JSX.Element,
+	raw: boolean,
+	options: RenderStreamOptions,
+): AsyncGenerator<string> {
+	const { tag, props } = element;
+
+	if (tag === Fragment) {
+		if (props.dangerouslySetInnerHTML != null) {
+			yield String(props.dangerouslySetInnerHTML.__html);
+			return;
+		}
+		yield* streamNode(props.children, raw, options);
+		return;
+	}
+
+	if (typeof tag === "function") {
+		let result: unknown;
+		try {
+			result = tag(props);
+		} catch (error) {
+			log.error("snarl/jsx:", "error rendering component:", error);
+			options.onError?.(error);
+			yield COMPONENT_ERROR;
+			return;
+		}
+		yield* streamNode(result, raw, options);
+		return;
+	}
+
+	if (typeof tag !== "string") {
+		throw new TypeError(`invalid jsx tag type: ${typeof tag}`);
+	}
+
+	const open = openTag(tag, props);
+	if (voidTags.has(tag)) {
+		yield open;
+		return;
+	}
+
+	if (props.dangerouslySetInnerHTML != null) {
+		if (props.children != null) {
+			throw new Error("cannot use both children and dangerouslySetInnerHTML");
+		}
+		yield open + String(props.dangerouslySetInnerHTML.__html) + `</${tag}>`;
+		return;
+	}
+
+	const rawTag = tag.length === 5 || tag.length === 6 ? tag.toLowerCase() : tag;
+	if (RAW_TEXT_TAGS.has(rawTag)) {
+		const inner = renderTrusted(props.children, true);
+		const text = typeof inner === "string" ? inner : await inner;
+		yield open + escapeRawText(text, rawTag) + `</${tag}>`;
+		return;
+	}
+
+	yield open;
+	yield* streamNode(props.children, raw, options);
+	yield `</${tag}>`;
+}
+
+/**
+ * renders `node` to a stream of html, flushing each part as it becomes known
+ * instead of holding the whole document back for the slowest piece of it.
+ *
+ * @example
+ * ```tsx
+ * app.get("/", (ctx) => ctx.htmlStream(<Page />));
+ * ```
+ */
+export function renderToStream(
+	node: unknown,
+	options: RenderStreamOptions = {},
+): ReadableStream<Uint8Array<ArrayBuffer>> {
+	const encoder = new TextEncoder();
+	const walk = streamNode(node, false, options);
+	const parts = options.doctype ? withDoctype(walk) : walk;
+
+	return new ReadableStream({
+		async pull(controller) {
+			for (;;) {
+				const { done, value } = await parts.next();
+				if (done) return void controller.close();
+				if (value) return void controller.enqueue(encoder.encode(value));
+			}
+		},
+		cancel(reason) {
+			return void parts.return(reason);
+		},
+	});
 }
 
 export type CSSProperties =
