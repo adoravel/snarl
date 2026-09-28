@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: MPL-2.0
  */
 
-import { css, reactive, signal } from "@404/aether";
+import { computed, css, reactive, signal } from "@404/aether";
 
 const Styled = css`
 	:scope {
@@ -119,13 +119,13 @@ export default function Todos() {
 			<ul class="todo-list">
 				<for each={todos} key={(t) => t.id} fallback={<li class="todo-item">nothing yet</li>}>
 					{(todo: () => Todo) => (
-						<li class="todo-item" class:done={() => todo().done}>
+						<li class="todo-item" class:done={computed(() => todo().done)}>
 							<input
 								type="checkbox"
-								checked={todo().done}
+								checked={computed(() => todo().done)}
 								on:change={() => toggleTodo(todo())}
 							/>
-							<label on:click={() => toggleTodo(todo())}>{todo().text}</label>
+							<label on:click={() => toggleTodo(todo())}>{computed(() => todo().text)}</label>
 							<button type="button" class="delete-btn" onClick={() => deleteTodo(todo().id)}>
 								✕
 							</button>

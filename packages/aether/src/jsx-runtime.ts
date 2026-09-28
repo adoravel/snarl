@@ -176,27 +176,28 @@ export const jsxAttr = snarl.jsxAttr;
 export const jsxTemplate = snarl.jsxTemplate;
 export const renderToString = snarl.renderToString;
 
-type MaybeReactive<T> = T | Signal<T> | Computed<T>;
+/** `T`, or a signal or computed carrying it */
+type MaybeReactive<T> = T | Computed<T> | Signal<T> | Signal<Exclude<T, undefined>>;
+
+type Reactive<T> = {
+	[K in keyof T as K extends `on${string}` ? never : K]: MaybeReactive<T[K]>;
+};
 
 export type ReactiveExtensions<T> = {
 	[K in keyof T]: T[K] extends snarl.HTMLAttributeMap<infer ElementType>
-		? T[K] | ReactiveOverrides<ElementType>
-		: T[K] | ReactiveOverrides<HTMLElement>;
+		? Reactive<T[K]> & ReactiveOverrides<ElementType>
+		: Reactive<T[K]> & ReactiveOverrides<HTMLElement>;
 };
 
+type Handler<K extends keyof HTMLElementEventMap, TargetElement> = (
+	this: TargetElement,
+	event: HTMLElementEventMap[K] & { currentTarget: TargetElement },
+) => void;
+
 type DynamicEventHandlers<TargetElement> =
-	& {
-		[K in keyof HTMLElementEventMap as `on:${K}`]?: (
-			this: TargetElement,
-			event: HTMLElementEventMap[K] & { currentTarget: TargetElement },
-		) => void;
-	}
-	& {
-		[K in keyof HTMLElementEventMap as `on${K}`]?: (
-			this: TargetElement,
-			event: HTMLElementEventMap[K] & { currentTarget: TargetElement },
-		) => void;
-	};
+	& { [K in keyof HTMLElementEventMap as `on:${K}`]?: Handler<K, TargetElement> }
+	& { [K in keyof HTMLElementEventMap as `on${K}`]?: Handler<K, TargetElement> }
+	& { [K in keyof HTMLElementEventMap as `on${Capitalize<K>}`]?: Handler<K, TargetElement> };
 
 export type ReactiveOverrides<TargetElement = HTMLElement> =
 	& DynamicEventHandlers<TargetElement>
@@ -204,10 +205,6 @@ export type ReactiveOverrides<TargetElement = HTMLElement> =
 		style?: MaybeReactive<string> | snarl.CSSProperties | MaybeReactive<snarl.CSSProperties>;
 		class?: MaybeReactive<string>;
 		href?: MaybeReactive<string>;
-
-		disabled?: MaybeReactive<boolean>;
-		value?: MaybeReactive<string>;
-		checked?: MaybeReactive<boolean>;
 
 		[key: `data-${string}`]: MaybeReactive<string | number | boolean | null | undefined>;
 		[key: `aria-${string}`]: MaybeReactive<string | number | boolean | null | undefined>;
