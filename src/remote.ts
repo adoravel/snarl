@@ -507,16 +507,16 @@ export function createRemoteClient<R extends RemoteRoutes>(
 						headers: computeHeaders(endpoint, { accept: "text/event-stream" }, callOptions),
 						signal,
 					});
-					
+
 					if (!response.ok) throw await fail(response, info);
 					if (!response.body) return;
-					
+
 					const asText = endpoint.response === "text";
 					for await (const data of consume(response.body)) {
 						yield check(endpoint, asText ? data : JSON.parse(data));
 					}
 				})();
-				
+
 				return Object.assign({ [Symbol.asyncIterator]: () => iterator }, {
 					close: () => controller.abort(),
 				});

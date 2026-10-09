@@ -55,7 +55,7 @@ function live<V>(entry: Entry<V> | undefined, now: number): entry is Entry<V> {
 /**
  * a store in this process's memory. insertion order is the eviction order, and
  * reading a key does *not* refresh it.
- 
+
  * @example
  * ```ts
  * const sessions = createMemoryStore<string, Session>({ ttl: 30 * 60_000 });
