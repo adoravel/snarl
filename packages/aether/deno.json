@@ -1,7 +1,7 @@
 {
 	"name": "@404/aether",
 	"description": "a minimal islands architecture implementation for snarl",
-	"version": "1.3.0",
+	"version": "1.4.0",
 	"license": "MPL-2.0",
 	"exports": {
 		".": "./src/mod.ts",
