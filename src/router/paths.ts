@@ -67,3 +67,9 @@ function makeFallbackPathParts(rawUrl: string): PathParts {
 	const url = new URL(rawUrl);
 	return { pathname: normalisePath(url.pathname), search: url.search };
 }
+
+/** is `path` at `mount`, or inside it? `""` is every path */
+export function under(path: string, mount: string): boolean {
+	if (!mount) return true;
+	return path === mount || path.startsWith(`${mount}/`);
+}

@@ -7,6 +7,7 @@
 import type { Context, Middleware } from "../context/mod.ts";
 import { BadRequestError } from "../errors.ts";
 import { log } from "../verbosity.ts";
+import { under } from "../router/paths.ts";
 
 export interface ProxyCookieRewrite {
 	/** replaces the cookie's `Domain`. `null` drops the attribute so the cookie binds to this host */
@@ -81,10 +82,6 @@ function rewriteCookie(cookie: string, rules: ProxyCookieRewrite): string {
 	}
 	if (rules.path !== undefined && !sawPath) out.push(`Path=${rules.path}`);
 	return out.join("; ");
-}
-
-function under(path: string, mount: string): boolean {
-	return path === mount || path.startsWith(`${mount}/`);
 }
 
 /**

@@ -5,7 +5,13 @@
  */
 
 import { assertEquals } from "@std/assert";
-import { createRouter, httpMethods, NotFoundError } from "@july/snarl";
+import {
+	type Context,
+	createRouter,
+	httpMethods,
+	type MutableResponse,
+	NotFoundError,
+} from "@july/snarl";
 
 const mockInfo = { remoteAddr: { hostname: "127.0.0.1" } } as Deno.ServeHandlerInfo<Deno.NetAddr>;
 
@@ -384,6 +390,94 @@ Deno.test("router: groups", async (t) => {
 
 		await router.fetch(new Request("http://localhost/admin/dashboard"), mockInfo);
 		assertEquals(calls, ["mw", "handler"]);
+	});
+
+	await t.step("group middleware does not run outside the group", async () => {
+		const router = createRouter();
+		const seen: string[] = [];
+
+		router.get("/public", (ctx) => ctx.text("public"));
+		router.group("/admin", (admin) => {
+			admin.use((ctx, next) => {
+				seen.push(ctx.path);
+				return next();
+			});
+			admin.get("/dashboard", (ctx) => ctx.text("admin"));
+		});
+		// a sibling that shares the prefix as a string but not as a path
+		router.get("/administration", (ctx) => ctx.text("other"));
+
+		for (const path of ["/public", "/admin/dashboard", "/administration"]) {
+			await (await router.fetch(new Request(`http://localhost${path}`), mockInfo)).text();
+		}
+		assertEquals(seen, ["/admin/dashboard"]);
+	});
+
+	await t.step("a nested group's middleware stays in the nested group", async () => {
+		const router = createRouter();
+		const seen: string[] = [];
+
+		router.group("/api", (api) => {
+			api.use((_, next) => (seen.push("api"), next()));
+			api.get("/health", (ctx) => ctx.text("ok"));
+			api.group("/v1", (v1) => {
+				v1.use((_, next) => (seen.push("v1"), next()));
+				v1.get("/users", (ctx) => ctx.text("ok"));
+			});
+		});
+
+		await (await router.fetch(new Request("http://localhost/api/v1/users"), mockInfo)).text();
+		assertEquals(seen, ["api", "v1"]);
+
+		seen.length = 0;
+		await (await router.fetch(new Request("http://localhost/api/health"), mockInfo)).text();
+		assertEquals(seen, ["api"], "the inner group's middleware is not on the outer path");
+	});
+
+	await t.step("the same named middleware can be scoped to two groups", async () => {
+		const router = createRouter();
+		const seen: string[] = [];
+		const provided = {
+			name: "audit",
+			factory: () => (ctx: Context, next: () => Promise<MutableResponse>) => {
+				seen.push(ctx.path);
+				return next();
+			},
+		};
+
+		router.group("/a", (a) => {
+			a.use(provided);
+			a.get("/x", (ctx) => ctx.text("a"));
+		});
+		router.group("/b", (b) => {
+			b.use(provided);
+			b.get("/x", (ctx) => ctx.text("b"));
+		});
+		router.get("/c", (ctx) => ctx.text("c"));
+
+		for (const path of ["/a/x", "/b/x", "/c"]) {
+			await (await router.fetch(new Request(`http://localhost${path}`), mockInfo)).text();
+		}
+		assertEquals(seen, ["/a/x", "/b/x"]);
+		assertEquals(router.middlewareOrder(), ["audit@/a", "audit@/b"]);
+	});
+
+	await t.step("scoping accounts for the router's own prefix", async () => {
+		const router = createRouter({ prefix: "/base" });
+		const seen: string[] = [];
+
+		router.group("/admin", (admin) => {
+			admin.use((_, next) => (seen.push("mw"), next()));
+			admin.get("/x", (ctx) => ctx.text("ok"));
+		});
+		router.get("/open", (ctx) => ctx.text("ok"));
+
+		await (await router.fetch(new Request("http://localhost/base/admin/x"), mockInfo)).text();
+		assertEquals(seen, ["mw"]);
+
+		seen.length = 0;
+		await (await router.fetch(new Request("http://localhost/base/open"), mockInfo)).text();
+		assertEquals(seen, []);
 	});
 
 	await t.step("nested group middleware inheritance", async () => {

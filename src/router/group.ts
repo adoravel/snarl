@@ -9,6 +9,7 @@ import { extractPattern, type RouteMetadata } from "./route.ts";
 import type { Router } from "./factory.ts";
 import type { Handler } from "../context/mod.ts";
 import { normalisePath } from "./paths.ts";
+import { scopeMiddleware } from "../middleware/manager.ts";
 
 function joinPrefix(parentPrefix: string, childPrefix: string): string {
 	if (!parentPrefix) return childPrefix;
@@ -24,7 +25,10 @@ export function createPrefixedRouter(parent: Router, prefix: string): Router {
 		middlewareOrder: parent.middlewareOrder,
 
 		use(...mw) {
-			parent.use(...mw);
+			const mount = joinPrefix(parent.config.prefix, prefix);
+			for (const entry of mw.flat()) {
+				parent.use(scopeMiddleware(entry, mount, parent.config.caseSensitive));
+			}
 			return prefixed as Router;
 		},
 

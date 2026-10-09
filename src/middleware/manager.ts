@@ -7,6 +7,7 @@
 import type { Middleware } from "../context/middleware.ts";
 import type { PermissionRequirement } from "../permissions.ts";
 import { preflightPermissions } from "../permissions.ts";
+import { under } from "../router/paths.ts";
 
 /**
  * conventional priority tiers. lower values sit further **outside** the
@@ -46,6 +47,40 @@ export class MiddlewareResolutionError extends Error {
 }
 
 const providers = new Map<string, MiddlewareDefinition>();
+
+/** distinguishes two anonymous middlewares scoped to the same prefix */
+let scopeSeq = 0;
+
+/** @internal the same middleware, confined to a mount path */
+export function scopeMiddleware(
+	entry: MiddlewareLike,
+	mount: string,
+	caseSensitive = true,
+): MiddlewareDefinition {
+	const target = caseSensitive ? mount : mount.toLowerCase();
+
+	const confine = (mw: Middleware): Middleware => (ctx, next) =>
+		under(caseSensitive ? ctx.path : ctx.path.toLowerCase(), target) ? mw(ctx, next) : next();
+
+	if (typeof entry === "function") {
+		return {
+			name: `anonymous#${scopeSeq++}@${mount}`,
+			priority: MiddlewarePriority.normal,
+			factory: () => confine(entry),
+		};
+	}
+
+	const def = typeof entry === "string" ? providers.get(entry) : entry;
+	if (!def) {
+		throw new MiddlewareResolutionError(`no middleware named "${entry}" has been provided`);
+	}
+
+	return {
+		...def,
+		name: `${def.name}@${mount}`,
+		factory: async () => confine(await def.factory()),
+	};
+}
 
 /** register a middleware that can be auto-pulled as a dependency or enabled via `use("name")` */
 export function provideMiddleware(def: MiddlewareDefinition): void {
