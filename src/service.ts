@@ -24,6 +24,7 @@ export type ErrorCode =
 	| "forbidden"
 	| "not_found"
 	| "conflict"
+	| "payload_too_large"
 	| "rate_limited"
 	| "internal";
 
@@ -33,6 +34,7 @@ const STATUS: Record<ErrorCode, number> = {
 	forbidden: 403,
 	not_found: 404,
 	conflict: 409,
+	payload_too_large: 413,
 	invalid: 422,
 	rate_limited: 429,
 	internal: 500,
@@ -85,6 +87,12 @@ export interface ProcedureOptions {
 
 	/** sent with a successful response, e.g. `{ "Cache-Control": "max-age=60" }` */
 	headers?: Record<string, string>;
+
+	/**
+	 * the status a success answers with. defaults to 200, or 204 when the handler
+	 * returns nothing. `status: 201` for a procedure that creates something
+	 */
+	status?: number;
 }
 
 export interface Procedure<In, Out, K extends Kind, Code extends ErrorCode, Accepted = In> {
@@ -124,6 +132,8 @@ export interface CallOptions {
 
 	/** sent with this call only, on top of the client's own headers */
 	headers?: HeadersInit;
+
+	fetch?: typeof fetch;
 }
 
 /** @internal what a call is invoked with */
@@ -485,10 +495,11 @@ export function service<const R extends Routes>(
 
 			const value = procedure.output ? procedure.output.parse(await result) : await result;
 
+			const { status, headers } = procedure.options;
 			if (value === undefined) {
-				return new Response(null, { status: 204, headers: procedure.options.headers });
+				return new Response(null, { status: status ?? 204, headers });
 			}
-			return ctx.json(value, { headers: procedure.options.headers });
+			return ctx.json(value, { status, headers });
 		} catch (error) {
 			const failure = asServiceError(error);
 			if (!(error instanceof ServiceError) && !(error instanceof HttpError)) {
@@ -644,7 +655,7 @@ export interface ClientOptions {
 	 */
 	url?: string;
 
-	/** mount point, matching the api's. defaults to `/_api` */
+	/** mount point, matching the api's. defaults to `/api` */
 	prefix?: string;
 
 	/** the fetch to use. defaults to the global one */
@@ -663,7 +674,8 @@ export function createClient<S extends Service<Routes>>(
 ): S extends Service<infer R> ? Client<R> : never {
 	const base = trimSlashes(options.url ?? "");
 	const prefix = trimSlashes(options.prefix ?? DEFAULT_PREFIX);
-	const doFetch = options.fetch ?? fetch;
+	const defaultFetch = options.fetch ?? fetch;
+	const getFetch = (call?: CallOptions) => call?.fetch ?? defaultFetch;
 
 	const computeHeaders = (extra?: Record<string, string>, call?: CallOptions) => {
 		const headers = new Headers(
@@ -701,7 +713,7 @@ export function createClient<S extends Service<Routes>>(
 		const url = (input?: unknown) => `${endpoint}${encodeQuery(input)}`;
 
 		const post = (input?: unknown, call?: CallOptions) =>
-			doFetch(endpoint, {
+			getFetch(call)(endpoint, {
 				method: "POST",
 				headers: computeHeaders({ "content-type": "application/json" }, call),
 				body: JSON.stringify(input ?? null),
@@ -709,13 +721,13 @@ export function createClient<S extends Service<Routes>>(
 			}).then(read);
 
 		const get = (input?: unknown, call?: CallOptions) =>
-			doFetch(url(input), {
+			getFetch(call)(url(input), {
 				headers: computeHeaders(undefined, call),
 				signal: callSignal(call, options.timeout),
 			}).then(read);
 
 		async function* stream(input: unknown, signal: AbortSignal | undefined, call?: CallOptions) {
-			const response = await doFetch(url(input), {
+			const response = await getFetch(call)(url(input), {
 				headers: computeHeaders({ accept: "text/event-stream" }, call),
 				signal,
 			});

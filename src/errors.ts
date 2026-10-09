@@ -68,6 +68,13 @@ export class ConflictError extends HttpError {
 	}
 }
 
+/** Error 413 Content Too Large */
+export class PayloadTooLargeError extends HttpError {
+	constructor(message: string = "Content Too Large") {
+		super(413, message);
+	}
+}
+
 /** Error 422 Unprocessable Entity */
 export class UnprocessableEntityError extends HttpError {
 	constructor(message: string = "Unprocessable Entity") {

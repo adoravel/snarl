@@ -48,6 +48,10 @@ function upstream() {
 				return new Response("  spaced  ", { headers: { "content-type": "text/plain" } });
 			case "/search":
 				return Response.json({ query: url.search });
+			case "/lastfm":
+				return url.searchParams.get("user") === "ghost"
+					? Response.json({ error: 6, message: "User not found" })
+					: Response.json({ plays: 12 });
 			case "/slow":
 				await new Promise((resolve) => {
 					const timer = setTimeout(resolve, 5_000);
@@ -284,6 +288,101 @@ Deno.test("remote: onError is told which endpoint failed", async () => {
 
 		await client.gone.attempt();
 		assertEquals(named, ["gone GET /gone 404"]);
+	} finally {
+		await up.server.shutdown();
+	}
+});
+
+Deno.test("remote: a 200 that is really an error", async () => {
+	const up = upstream();
+	try {
+		const api = remote(up.url, {
+			plays: endpoint.get("/lastfm", {
+				input: v({ user: v.string() }),
+				output: v({ plays: v.number() }),
+				errors: ["not_found"],
+				// the union-and-recheck this replaces was per call site, every time
+				failure: (body) =>
+					body.error ? { code: "not_found", message: String(body.message) } : undefined,
+			}),
+		});
+		const client = createRemoteClient(api);
+
+		assertEquals(await client.plays({ user: "real" }), { plays: 12 });
+
+		const missing = await client.plays.attempt({ user: "ghost" });
+		assert(!missing.ok);
+		assertEquals(missing.error.code, "not_found");
+		assertEquals(missing.error.message, "User not found");
+		assertEquals(missing.error.details, { error: 6, message: "User not found" });
+
+		// and `output` only has to describe success, since failure never reaches it
+		const _narrowed: Awaited<ReturnType<typeof client.plays>> = { plays: 1 };
+		assert(_narrowed);
+	} finally {
+		await up.server.shutdown();
+	}
+});
+
+Deno.test("remote: a hung api is bounded by default, but a stream is not", async () => {
+	const up = upstream();
+	try {
+		const api = remote(up.url, {
+			slow: endpoint.get("/slow"),
+			events: endpoint.stream("/slow"),
+		});
+
+		// 30s is the default, so the test names its own rather than waiting for it
+		const bounded = createRemoteClient(api, { timeout: 50 });
+		await assertRejects(() => bounded.slow());
+
+		// a stream is meant to stay open, so the client-wide bound does not apply
+		const stream = bounded.events();
+		const iterator = stream[Symbol.asyncIterator]();
+		const pending = iterator.next();
+		await new Promise((resolve) => setTimeout(resolve, 120));
+		stream.close();
+		await pending.catch(() => {});
+
+		// `null` opts out, so nothing bounds it and the test has to
+		const forever = createRemoteClient(api, { timeout: null });
+		const controller = new AbortController();
+		const inflight = forever.slow(undefined, { signal: controller.signal });
+		assertEquals(
+			await Promise.race([
+				inflight.then(() => "answered", () => "gave up"),
+				new Promise((resolve) => setTimeout(() => resolve("still waiting"), 60)),
+			]),
+			"still waiting",
+		);
+		controller.abort();
+		await inflight.catch(() => {});
+	} finally {
+		await up.server.shutdown();
+	}
+});
+
+Deno.test("remote: a call can bring its own fetch", async () => {
+	const up = upstream();
+	try {
+		const api = remote(up.url, { plain: endpoint.get("/plain", { response: "text" }) });
+		const seen: string[] = [];
+		const client = createRemoteClient(api);
+
+		// a per-session credential is not a per-client one: a dpop-bound fetch, say
+		const signed: typeof fetch = (input, init) => {
+			seen.push("signed");
+			const request = new Request(input as Request | string | URL, init);
+			request.headers.set("x-extra", "dpop");
+			return fetch(request);
+		};
+
+		await client.plain(undefined, { fetch: signed });
+		assertEquals(seen, ["signed"]);
+		assertEquals(up.seen.at(-1)?.extra, "dpop");
+
+		await client.plain();
+		assertEquals(seen, ["signed"], "and the client's own fetch is used otherwise");
 	} finally {
 		await up.server.shutdown();
 	}

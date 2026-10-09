@@ -5,7 +5,7 @@
  */
 
 import { LimitedBytesTransformStream } from "@std/streams";
-import { HttpError } from "../errors.ts";
+import { HttpError, PayloadTooLargeError } from "../errors.ts";
 
 export interface MultipartOptions {
 	/** maximum total size in bytes for the entire multipart payload. defaults to 10 MB */
@@ -51,7 +51,7 @@ export async function createMultipartReader(
 		return await parseFormData(form, options.maxFileSize);
 	} catch (error: any) {
 		if (error instanceof RangeError && error.message.includes("exceeds size limit")) {
-			throw new HttpError(413, `Payload exceeds the ${maxTotalSize}-byte limit`);
+			throw new PayloadTooLargeError(`Payload exceeds the ${maxTotalSize}-byte limit`);
 		}
 		const message = "message" in error ? error.message : String(error);
 		throw new HttpError(400, `Failed to parse multipart data: ${message}`);
@@ -68,7 +68,9 @@ async function parseFormData(formData: FormData, maxFileSize?: number): Promise<
 	for (const [name, value] of formData.entries()) {
 		if (value instanceof File) {
 			if (maxFileSize && value.size > maxFileSize) {
-				throw new HttpError(413, `File "${value.name}" exceeds the ${maxFileSize}-byte limit`);
+				throw new PayloadTooLargeError(
+					`File "${value.name}" exceeds the ${maxFileSize}-byte limit`,
+				);
 			}
 			const content = new Uint8Array(await value.arrayBuffer());
 			files[name] = {

@@ -268,6 +268,54 @@ Deno.test("service: the http client is the same shape as the caller", async () =
 	assertEquals(streamed, posts);
 });
 
+Deno.test("service: a procedure chooses its success status and can be too large", async () => {
+	const created = service({
+		posts: {
+			create: service.mutation({
+				input: v({ title: v.string() }),
+				status: 201,
+				headers: { Location: "/posts/1" },
+				handler: ({ input }) => ({ id: 1, title: input.title }),
+			}),
+			upload: service.mutation({
+				input: v({ size: v.number() }),
+				errors: ["payload_too_large"],
+				handler: ({ input }) => {
+					if (input.size > 10) throw new ServiceError("payload_too_large", "too big");
+					return { ok: true };
+				},
+			}),
+			touch: service.mutation({ status: 202, handler: () => {} }),
+		},
+	});
+
+	const app = createRouter();
+	created.mount(app);
+
+	const post = async (path: string, body: unknown) =>
+		await app.fetch(
+			new Request(`http://localhost/api/${path}`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(body),
+			}),
+			mockInfo,
+		);
+
+	const made = await post("posts.create", { title: "one" });
+	assertEquals(made.status, 201);
+	assertEquals(made.headers.get("Location"), "/posts/1");
+	assertEquals(await made.json(), { id: 1, title: "one" });
+
+	const big = await post("posts.upload", { size: 99 });
+	assertEquals(big.status, 413, "payload_too_large is a 413, not a reluctant 422");
+	assertEquals(await big.json(), { error: "too big", code: "payload_too_large" });
+
+	const empty = await post("posts.touch", null);
+	assertEquals(empty.status, 202, "a handler returning nothing still chooses its status");
+	await empty.text();
+});
+
 Deno.test("service: a call can be given headers, a timeout and a signal", async () => {
 	const app = createRouter();
 	api.mount(app);

@@ -32,6 +32,8 @@ const PARAM_RE = /:([A-Za-z_][A-Za-z0-9_]*)/g;
 /** an endpoint path that names its own origin rather than the remote's */
 const ABSOLUTE_RE = /^[a-z][a-z0-9+.-]*:\/\//i;
 
+const DEFAULT_TIMEOUT = 30_000;
+
 /**
  * - `json` — `application/json`, the default for a verb that carries a body
  * - `form` — `application/x-www-form-urlencoded`, which oauth token exchange wants
@@ -74,8 +76,18 @@ export interface EndpointDefinition<S, O, E extends readonly ErrorCode[], F> {
 	/** how the response is read. defaults to `json` */
 	response?: F;
 
-	/** how the leftover input becomes a query string, without the `?` */
+	/**
+	 * how the leftover input becomes a query string, without the `?`. the default
+	 * repeats a key per array item; an api wanting `a,b` or `k[]=a` says so here
+	 */
 	query?: (input: Record<string, unknown>) => string;
+
+	/**
+	 * for an api that answers `200` and puts the failure in the body. 🫩🫩🫩
+	 *
+	 * declare the code in `errors` too, so the client narrows to it
+	 */
+	failure?: (body: any) => { code: ErrorCode; message: string; details?: unknown } | undefined;
 }
 
 export interface Endpoint<
@@ -98,6 +110,9 @@ export interface Endpoint<
 	readonly body?: BodyFormat | ((input: any) => BodyInit | null);
 	readonly response?: ResponseFormat;
 	readonly query?: (input: Record<string, unknown>) => string;
+	readonly failure?: (
+		body: any,
+	) => { code: ErrorCode; message: string; details?: unknown } | undefined;
 }
 
 export type AnyEndpoint = Endpoint<any, any, ErrorCode, any, boolean>;
@@ -164,7 +179,7 @@ export interface RemoteOptions {
 	fetch?: typeof fetch;
 
 	/** aborts any call that takes longer than this, unless the call says otherwise */
-	timeout?: number;
+	timeout?: number | null;
 
 	/**
 	 * turns somebody else's error body into a code and a message. without it
@@ -346,7 +361,9 @@ export function createRemoteClient<R extends RemoteRoutes>(
 	api: Remote<R>,
 	options: RemoteOptions = {},
 ): RemoteClient<R> {
-	const doFetch = options.fetch ?? fetch;
+	const defaultFetch = options.fetch ?? fetch;
+	const fetchFor = (call?: CallOptions) => call?.fetch ?? defaultFetch;
+	const timeout = options.timeout === null ? undefined : options.timeout ?? DEFAULT_TIMEOUT;
 	const byPath = new Map(api.list().map((info) => [info.path, info]));
 
 	const computeHeaders = (
@@ -387,6 +404,12 @@ export function createRemoteClient<R extends RemoteRoutes>(
 		return failure;
 	}
 
+	function declared(endpoint: AnyEndpoint, body: unknown): unknown {
+		const failure = endpoint.failure?.(body);
+		if (failure == null) return body;
+		throw new ServiceError(failure.code, failure.message, failure.details ?? body);
+	}
+
 	async function decode(response: Response, endpoint: AnyEndpoint): Promise<unknown> {
 		switch (endpoint.response ?? "json") {
 			case "response":
@@ -396,14 +419,15 @@ export function createRemoteClient<R extends RemoteRoutes>(
 			case "bytes":
 				return new Uint8Array(await response.arrayBuffer());
 			case "text":
-				return check(endpoint, await response.text());
+				return check(endpoint, declared(endpoint, await response.text()));
 			case "none":
 				await response.body?.cancel();
 				return undefined;
 			default: {
-				if (response.status === 204) return check(endpoint, undefined);
+				if (response.status === 204) return check(endpoint, declared(endpoint, undefined));
 				const text = await response.text();
-				return check(endpoint, text === "" ? undefined : JSON.parse(text));
+				const body = text === "" ? undefined : JSON.parse(text);
+				return check(endpoint, declared(endpoint, body));
 			}
 		}
 	}
@@ -461,11 +485,11 @@ export function createRemoteClient<R extends RemoteRoutes>(
 				& { url: string; body: BodyInit | null }
 				& { type?: string };
 
-			const response = await doFetch(url, {
+			const response = await fetchFor(callOptions)(url, {
 				method: verb,
 				headers: computeHeaders(endpoint, type ? { "content-type": type } : undefined, callOptions),
 				body,
-				signal: callSignal(callOptions, options.timeout),
+				signal: callSignal(callOptions, timeout),
 			});
 			if (!response.ok && endpoint.response !== "response") throw await fail(response, info);
 
@@ -475,20 +499,24 @@ export function createRemoteClient<R extends RemoteRoutes>(
 		if (endpoint.streaming) {
 			const open = (raw?: unknown, callOptions?: CallOptions) => {
 				const controller = new AbortController();
-				const signal = callSignal(callOptions, options.timeout, controller.signal);
+				const signal = callSignal(callOptions, undefined, controller.signal);
+
 				const iterator = (async function* () {
-					const response = await doFetch(url(raw), {
+					const response = await fetchFor(callOptions)(url(raw), {
 						method: verb,
 						headers: computeHeaders(endpoint, { accept: "text/event-stream" }, callOptions),
 						signal,
 					});
+					
 					if (!response.ok) throw await fail(response, info);
 					if (!response.body) return;
+					
 					const asText = endpoint.response === "text";
 					for await (const data of consume(response.body)) {
 						yield check(endpoint, asText ? data : JSON.parse(data));
 					}
 				})();
+				
 				return Object.assign({ [Symbol.asyncIterator]: () => iterator }, {
 					close: () => controller.abort(),
 				});
