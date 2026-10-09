@@ -5,6 +5,7 @@
  */
 
 import type { Context, Handler, Middleware } from "../context/mod.ts";
+import { createMemoryStore, type Store } from "../store.ts";
 
 /**
  * a storage backend for rate limiting data
@@ -20,61 +21,41 @@ export interface RateLimitStore {
 	cleanup: () => void;
 }
 
-/** in-memory implementation of `RateLimitStore` */
-class MemoryStore implements RateLimitStore {
-	private requests = new Map<string, { count: number; reset: number }>();
-	private timer: ReturnType<typeof setTimeout> | null = null;
-
-	constructor(private windowMs: number, private maxSize: number = 10_000) {}
-
-	increment(key: string, windowMs: number): Promise<{ count: number; reset: number }> {
-		const now = Date.now();
-		const existing = this.requests.get(key);
-
-		const entry = existing && now <= existing.reset
-			? { count: existing.count + 1, reset: existing.reset }
-			: { count: 1, reset: now + windowMs };
-
-		this.requests.delete(key);
-		this.requests.set(key, entry);
-
-		if (this.requests.size > this.maxSize) {
-			const firstKey = this.requests.keys().next().value;
-			if (firstKey !== undefined) this.requests.delete(firstKey);
-		}
-
-		this.scheduleCleanup();
-		return Promise.resolve(entry);
-	}
-
-	public cleanup(): void {
-		if (this.timer) {
-			clearTimeout(this.timer);
-			this.timer = null;
-		}
-	}
-
-	private scheduleCleanup() {
-		if (this.timer) return;
-
-		this.timer = setTimeout(() => {
+/**
+ * a `RateLimitStore` over any {@link Store}, so a limit can be counted in memory
+ * or somewhere every process can see it.
+ *
+ * @example
+ * ```ts
+ * const shared = rateLimitStore(createFileStore("./.limits"));
+ * app.use(rateLimit({ windowMs: 60_000, max: 100, store: shared }));
+ * ```
+ */
+export function rateLimitStore(
+	store: Store<string, { count: number; reset: number }>,
+): RateLimitStore {
+	return {
+		async increment(key, windowMs) {
 			const now = Date.now();
-			let hasActiveKeys = false;
+			const existing = await store.get(key);
 
-			for (const [key, data] of this.requests.entries()) {
-				if (now > data.reset) {
-					this.requests.delete(key);
-				} else {
-					hasActiveKeys = true;
-				}
-			}
+			const entry = existing && now <= existing.reset
+				? { count: existing.count + 1, reset: existing.reset }
+				: { count: 1, reset: now + windowMs };
 
-			this.timer = null;
-			if (hasActiveKeys) this.scheduleCleanup();
-		}, this.windowMs);
+			await store.set(key, entry, { ttl: entry.reset - now });
+			return entry;
+		},
+		cleanup: () => store.close(),
+	};
+}
 
-		if (this.timer !== null) Deno.unrefTimer(this.timer);
-	}
+/** the default store. counts in this process's memory */
+export function createRateLimitStore(
+	windowMs: number,
+	maxSize = 10_000,
+): RateLimitStore {
+	return rateLimitStore(createMemoryStore({ ttl: windowMs, maxSize }));
 }
 
 /**
@@ -102,7 +83,7 @@ export function rateLimit(options: {
 		max,
 		keygen = (ctx) => ctx.sender.remoteAddr.hostname,
 		handler,
-		store = new MemoryStore(windowMs),
+		store = createRateLimitStore(windowMs),
 	} = options;
 
 	const middleware = (async (ctx, next) => {

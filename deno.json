@@ -10,7 +10,8 @@
 		"./jsx-dev-runtime": "./src/jsx-runtime.ts",
 		"./verbosity": "./src/verbosity.ts",
 		"./service": "./src/service.ts",
-		"./remote": "./src/remote.ts"
+		"./remote": "./src/remote.ts",
+		"./store": "./src/store.ts"
 	},
 	"tasks": {
 		"bench": "deno task --cwd=bench start",
