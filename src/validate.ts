@@ -16,6 +16,11 @@ export interface Issue {
 
 export type Result<T> = { ok: true; value: T } | { ok: false; issues: Issue[] };
 
+/** what an adapted validator answers with. `path` is relative to where it sits */
+export type ExternalResult<Out> =
+	| { ok: true; value: Out }
+	| { ok: false; issues: readonly { path?: Path; message: string }[] };
+
 declare const brand: unique symbol;
 
 /** a nominal string: `string & Brand<"email">` is a string that went through `v.email()` */
@@ -510,6 +515,8 @@ export const v: {
 	uuid(): Schema<Uuid, string>;
 	/** a type guard as a schema. `message` is reported when it fails */
 	guard<T>(test: (value: unknown) => value is T, message?: string): Schema<T>;
+	/** somebody else's validator	*/
+	external<Out>(validate: (value: unknown) => ExternalResult<Out>): Schema<Out>;
 	/** for recursive shapes, the schema is looked up on first use */
 	lazy<Out, In = Out>(resolve: () => Schema<Out, In>): Schema<Out, In>;
 	coerce: typeof coerce;
@@ -537,6 +544,18 @@ export const v: {
 		guard: <T>(test: (value: unknown) => value is T, message = "invalid value") =>
 			schema<T>((value, path, issues) => {
 				if (!test(value)) issues.push({ path, message });
+				return value;
+			}),
+		external: <Out>(validate: (value: unknown) => ExternalResult<Out>) =>
+			schema<Out>((value, path, issues) => {
+				const result = validate(value);
+				if (result.ok) return result.value;
+				for (const issue of result.issues) {
+					issues.push({
+						path: issue.path ? [...path, ...issue.path] : path,
+						message: issue.message,
+					});
+				}
 				return value;
 			}),
 		lazy: <Out, In = Out>(resolve: () => Schema<Out, In>) => {

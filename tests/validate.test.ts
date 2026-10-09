@@ -310,3 +310,38 @@ Deno.test("validate: ctx.query.parse and ctx.body.form", async () => {
 	);
 	assertEquals(invalid.status, 422);
 });
+
+Deno.test("validate: external adapts somebody else's validator, issues and all", () => {
+	// stands in for a lexicon or a standard-schema implementation
+	const handle = v.external<`@${string}`>((value) =>
+		typeof value === "string" && value.startsWith("@")
+			? { ok: true, value: value as `@${string}` }
+			: { ok: false, issues: [{ message: "expected a handle" }] }
+	);
+
+	assertEquals(handle.parse("@kyu"), "@kyu");
+	assertEquals(handle.safeParse("kyu"), {
+		ok: false,
+		issues: [{ path: [], message: "expected a handle" }],
+	});
+
+	// its own paths are kept, and nested under where the schema sits
+	const profile = v({
+		did: v.string(),
+		record: v.external<{ text: string }>((value) => {
+			const text = (value as { text?: unknown })?.text;
+			return typeof text === "string"
+				? { ok: true, value: { text } }
+				: { ok: false, issues: [{ path: ["text"], message: "expected a string" }] };
+		}),
+	});
+
+	assertEquals(profile.parse({ did: "did:plc:x", record: { text: "hi" } }), {
+		did: "did:plc:x",
+		record: { text: "hi" },
+	});
+	assertEquals(profile.safeParse({ did: "did:plc:x", record: {} }), {
+		ok: false,
+		issues: [{ path: ["record", "text"], message: "expected a string" }],
+	});
+});
