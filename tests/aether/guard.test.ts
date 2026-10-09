@@ -85,3 +85,23 @@ Deno.test("guard: a clean island still bundles", async () => {
 	const code = await bundle({ "island.tsx": island() });
 	assertStringIncludes(code, "registerIsland");
 });
+
+Deno.test("guard: the browser-safe snarl subpaths bundle, and the root says which", async () => {
+	const code = await bundle({
+		"island.tsx": island(
+			`import { createClient } from "@july/snarl/service";\n` +
+				`import { createRemoteClient } from "@july/snarl/remote";\n` +
+				`console.log(createClient, createRemoteClient);`,
+		),
+	});
+	assertStringIncludes(code, "registerIsland");
+
+	const err = await assertRejects(() =>
+		bundle({
+			"island.tsx": island(
+				`import { createClient } from "@july/snarl";\nconsole.log(createClient);`,
+			),
+		}), Error);
+	assertStringIncludes(err.message, "@july/snarl/service");
+	assertStringIncludes(err.message, "@july/snarl/remote");
+});

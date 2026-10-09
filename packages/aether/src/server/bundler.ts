@@ -33,7 +33,7 @@ class UnsupportedExportError extends Error {
 	}
 }
 
-const KNOWN_EXPORTS: Record<string, string | (() => never) | undefined> = {
+const KNOWN_EXPORTS: Record<string, string | (() => never) | null | undefined> = {
 	"@404/aether": "client/browser-mod.ts",
 	"@404/aether/jsx-runtime": "client/jsx-runtime.ts",
 	"@404/aether/jsx-dev-runtime": "client/jsx-runtime.ts",
@@ -50,11 +50,16 @@ const KNOWN_EXPORTS: Record<string, string | (() => never) | undefined> = {
 	"@july/snarl": () => {
 		throw new UnsupportedExportError(
 			"@july/snarl",
-			'use "@404/aether" or "@404/aether/client" instead',
+			'the root export pulls in the server. use "@404/aether" for the runtime, ' +
+				'"@july/snarl/service" for createClient and ServiceError, or ' +
+				'"@july/snarl/remote" for createRemoteClient',
 		);
 	},
 	"@july/snarl/jsx-runtime": "client/jsx-runtime.ts",
 	"@july/snarl/jsx-dev-runtime": "client/jsx-runtime.ts",
+	"@july/snarl/service": null,
+	"@july/snarl/remote": null,
+	"@july/snarl/store": null,
 	"@404/imouto": () => {
 		throw new UnsupportedExportError("@404/imouto");
 	},
@@ -96,6 +101,7 @@ function aetherResolver(): Plugin {
 				if (!(args.path in KNOWN_EXPORTS)) return;
 
 				const rel = KNOWN_EXPORTS[args.path];
+				if (rel === null) return;
 				if (!rel) return { path: args.path, external: true };
 				if (typeof rel === "function") {
 					return rel();

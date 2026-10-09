@@ -11,6 +11,8 @@ export * from "./types.ts";
 export * from "./errors.ts";
 export * from "./cookie.ts";
 export * from "./stream.ts";
+export * from "./websocket.ts";
+export * from "./store.ts";
 export * from "./permissions.ts";
 export * from "./validate.ts";
 export * from "./service.ts";
